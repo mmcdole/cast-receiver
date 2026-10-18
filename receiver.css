@@ -1,0 +1,150 @@
+/* The TV's screens, drawn for a 1920×1080 frame: --u is one of its pixels,
+   whatever size the receiver renders at. All UI stays in the lower quarter
+   and nothing looks like a control. */
+:root {
+  --u: calc(100vw / 1920);
+  --bg: #0d0e12;
+  --surface: #15171d;
+  --text: #eceef2;
+  --muted: #9da3af;
+  --accent: #8b9cff;
+  --warning: #f2b84b;
+  --low: linear-gradient(180deg, rgba(13, 14, 18, 0), rgba(13, 14, 18, .78) 55%, rgba(13, 14, 18, .94));
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+#video {
+  z-index: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  visibility: hidden;
+}
+body.video #video { visibility: visible; }
+
+.layer { position: absolute; inset: 0; z-index: 1; }
+#low { z-index: 2; }
+#launch, #idle, .bar { z-index: 3; }
+#upnext { z-index: 4; }
+.hidden { display: none !important; }
+
+/* Backdrops: the idle screen's rotating art, and the loading and error screens' still. */
+#art { background: radial-gradient(ellipse at 50% 45%, #1a1d27, var(--bg) 70%); }
+#art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 1.6s ease;
+}
+#art img.on { opacity: 1; }
+#art.idle img { filter: brightness(.42) saturate(.9); }
+#art.loading img { filter: brightness(.55); }
+#art.error img { filter: brightness(.25) blur(calc(6 * var(--u))); transform: scale(1.03); }
+
+#low { background: var(--low); top: auto; height: calc(520 * var(--u)); }
+#low.short { height: calc(420 * var(--u)); }
+
+.wordmark { font-weight: 800; letter-spacing: -.03em; color: var(--text); line-height: 1; }
+
+#launch .wordmark { position: absolute; left: 0; right: 0; top: calc(470 * var(--u)); text-align: center; font-size: calc(120 * var(--u)); }
+#launch .spinner { position: absolute; left: calc(928 * var(--u)); top: calc(680 * var(--u)); }
+#launch.plain .spinner { display: none; }
+
+#idle .wordmark { position: absolute; left: calc(96 * var(--u)); bottom: calc(96 * var(--u)); font-size: calc(72 * var(--u)); }
+#dots { position: absolute; right: calc(96 * var(--u)); bottom: calc(108 * var(--u)); display: flex; gap: calc(12 * var(--u)); }
+#dots i { width: calc(12 * var(--u)); height: calc(12 * var(--u)); border-radius: 50%; background: rgba(255, 255, 255, .35); }
+#dots i.on { background: #fff; }
+
+.spinner {
+  width: calc(64 * var(--u));
+  height: calc(64 * var(--u));
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: calc(6 * var(--u)) solid rgba(139, 156, 255, .22);
+  border-top-color: var(--accent);
+  animation: spin 1s linear infinite;
+  flex: none;
+}
+.spinner.big { width: calc(80 * var(--u)); height: calc(80 * var(--u)); border-width: calc(7 * var(--u)); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.bar { position: absolute; left: calc(96 * var(--u)); right: calc(96 * var(--u)); bottom: calc(96 * var(--u)); }
+.row { display: flex; align-items: center; }
+.muted { color: var(--muted); }
+
+#loading .row { gap: calc(36 * var(--u)); }
+#loading .title { font-size: calc(72 * var(--u)); font-weight: 700; line-height: calc(84 * var(--u)); letter-spacing: -.01em; }
+#loading .sub { font-size: calc(28 * var(--u)); }
+
+#paused .row { gap: calc(36 * var(--u)); margin-bottom: calc(40 * var(--u)); }
+#paused .glyph { width: calc(96 * var(--u)); height: calc(96 * var(--u)); display: grid; place-items: center; }
+#paused .glyph svg { width: calc(88 * var(--u)); height: calc(88 * var(--u)); }
+#paused .title { font-size: calc(48 * var(--u)); font-weight: 600; line-height: calc(60 * var(--u)); }
+#paused .sub { font-size: calc(28 * var(--u)); }
+#paused .wordmark { margin-left: auto; font-size: calc(32 * var(--u)); color: rgba(236, 238, 242, .55); }
+#paused .pause { display: block; }
+#paused .spinner { display: none; }
+#paused.buffering .pause { display: none; }
+#paused.buffering .spinner { display: block; }
+
+.scrub { height: calc(8 * var(--u)); border-radius: calc(4 * var(--u)); background: rgba(255, 255, 255, .24); position: relative; overflow: hidden; }
+.scrub i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: calc(4 * var(--u)); background: var(--accent); }
+.times { display: flex; justify-content: space-between; font-size: calc(28 * var(--u)); color: var(--muted); margin-top: calc(18 * var(--u)); font-variant-numeric: tabular-nums; }
+.times .at { color: var(--text); }
+
+#error .row { gap: calc(32 * var(--u)); }
+#error svg { width: calc(72 * var(--u)); height: calc(72 * var(--u)); color: var(--warning); flex: none; }
+#error .line { font-size: calc(48 * var(--u)); font-weight: 600; line-height: calc(60 * var(--u)); }
+#error .sub { font-size: calc(28 * var(--u)); }
+
+#upnext {
+  position: absolute;
+  right: calc(96 * var(--u));
+  bottom: calc(96 * var(--u));
+  width: calc(720 * var(--u));
+  box-sizing: border-box;
+  border-radius: calc(24 * var(--u));
+  background: rgba(21, 23, 29, .92);
+  padding: calc(24 * var(--u));
+  display: flex;
+  gap: calc(28 * var(--u));
+  align-items: center;
+  box-shadow: 0 calc(20 * var(--u)) calc(50 * var(--u)) rgba(0, 0, 0, .5);
+}
+#upnext img { width: calc(288 * var(--u)); height: calc(162 * var(--u)); border-radius: calc(14 * var(--u)); object-fit: cover; background: var(--surface); flex: none; }
+#upnext .text { flex: 1; min-width: 0; }
+#upnext .line { font-size: calc(24 * var(--u)); }
+#upnext .title { font-size: calc(36 * var(--u)); font-weight: 600; line-height: calc(46 * var(--u)); margin-top: calc(4 * var(--u)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#upnext .count {
+  width: calc(84 * var(--u));
+  height: calc(84 * var(--u));
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: calc(6 * var(--u)) solid rgba(139, 156, 255, .25);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  display: grid;
+  place-items: center;
+  font-size: calc(34 * var(--u));
+  font-weight: 700;
+  flex: none;
+}
+#upnext.still .count { display: none; }
+
+.title, .sub, .line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-col { min-width: 0; }
