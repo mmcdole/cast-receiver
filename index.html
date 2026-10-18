@@ -3,7 +3,132 @@
 <head>
 <meta charset="utf-8">
 <title>Cast receiver</title>
-<style>html,body{margin:0;height:100%;background:#0d0e12}</style>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<script src="https://www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0e12; }
+cast-media-player { --background-color: #0d0e12; --splash-image: none; --logo-image: none; }
+</style>
 </head>
-<body></body>
+<body>
+<cast-media-player></cast-media-player>
+<script>
+// Test receiver: plays what a LOAD gives it and reports what happened.
+// Every line goes to the console, the debug logger and, as JSON, to
+// connected senders on NS. The debug logger's log panel stays hidden until
+// a sender sends {"command":"SHOW"} on urn:x-cast:com.google.cast.debuglogger.
+const NS = 'urn:x-cast:com.mattmcdole.cast.test';
+const TAG = 'TEST';
+const context = cast.framework.CastReceiverContext.getInstance();
+const player = context.getPlayerManager();
+const debug = cast.debug.CastDebugLogger.getInstance();
+const Events = cast.framework.events.EventType;
+let started = false;
+
+function plain(v) {
+  if (v instanceof Error) return { name: v.name, message: v.message };
+  try { return JSON.parse(JSON.stringify(v, (k, x) => (x instanceof Error ? { name: x.name, message: x.message } : x))); }
+  catch (e) { return String(v); }
+}
+
+function log(level, msg, data) {
+  const line = data === undefined ? msg : msg + ' ' + JSON.stringify(plain(data));
+  (level === 'error' ? console.error : console.log)('[' + TAG + '] ' + line);
+  try { level === 'error' ? debug.error(TAG, line) : debug.info(TAG, line); } catch (e) {}
+  if (started) {
+    try { context.sendCustomMessage(NS, undefined, { level, msg, data: plain(data), t: Date.now() }); } catch (e) {}
+  }
+}
+
+window.addEventListener('error', e => log('error', 'window error', { message: e.message, source: e.filename, line: e.lineno }));
+window.addEventListener('unhandledrejection', e => log('error', 'unhandled rejection', e.reason));
+document.addEventListener('securitypolicyviolation', e =>
+  log('error', 'CSP violation', { blocked: e.blockedURI, directive: e.violatedDirective, policy: e.originalPolicy }));
+
+// Fetch the URL ourselves, once with CORS and once without. Mixed-content
+// blocking fails both; a CORS problem fails only the first.
+async function probe(url) {
+  for (const mode of ['cors', 'no-cors']) {
+    const ctl = new AbortController();
+    const t0 = performance.now();
+    try {
+      const r = await fetch(url, { mode, cache: 'no-store', signal: ctl.signal });
+      log('info', 'probe ' + mode, {
+        url, type: r.type, status: r.status, ms: Math.round(performance.now() - t0),
+        contentType: r.headers.get('content-type'), acao: r.headers.get('access-control-allow-origin'),
+      });
+    } catch (e) {
+      log('error', 'probe ' + mode + ' failed', { url, error: e, ms: Math.round(performance.now() - t0) });
+    }
+    ctl.abort();
+  }
+}
+
+const codecs = [
+  ['video/mp4', 'avc1.640028'], ['video/mp4', 'avc1.640033'],
+  ['video/mp4', 'hvc1.1.6.L150.B0'], ['video/mp4', 'hvc1.2.4.L153.B0'], ['video/mp4', 'hev1.2.4.L153.B0'],
+  ['video/mp4', 'dvh1.05.06'], ['video/mp4', 'dvh1.08.06'],
+  ['video/mp4', 'vp09.00.40.08'], ['video/mp4', 'vp09.02.40.10'], ['video/mp4', 'av01.0.08M.08'],
+  ['audio/mp4', 'mp4a.40.2'], ['audio/mp4', 'ac-3'], ['audio/mp4', 'ec-3'], ['audio/mp4', 'opus'], ['audio/mp4', 'flac'],
+  ['video/webm', 'vp9'], ['video/x-matroska', 'avc1.640028'], ['video/mp2t', 'avc1.640028'],
+];
+
+function report() {
+  const can = {};
+  for (const [mime, c] of codecs) {
+    try { can[mime + '; codecs=' + c] = context.canDisplayType(mime, c); } catch (e) { can[mime + '; codecs=' + c] = String(e); }
+  }
+  const sizes = {};
+  for (const [w, h, fps] of [[1920, 1080, 30], [3840, 2160, 30], [3840, 2160, 60]]) {
+    sizes[w + 'x' + h + '@' + fps + ' hevc'] = context.canDisplayType('video/mp4', 'hvc1.1.6.L150.B0', w, h, fps);
+  }
+  let device = null;
+  try { device = context.getDeviceCapabilities(); } catch (e) { device = String(e); }
+  log('info', 'capabilities', { device, can, sizes, userAgent: navigator.userAgent, origin: location.origin });
+}
+
+context.addCustomMessageListener(NS, e => {
+  if (e.data && e.data.type === 'capabilities') report();
+});
+
+context.addEventListener(cast.framework.system.EventType.READY, () => {
+  debug.setEnabled(true);
+  debug.loggerLevelByTags = { [TAG]: cast.framework.LoggerLevel.DEBUG };
+  log('info', 'ready');
+  report();
+});
+context.addEventListener(cast.framework.system.EventType.ERROR, e => log('error', 'system error', e));
+
+player.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, req => {
+  const m = req.media || {};
+  const url = m.contentUrl || m.contentId;
+  log('info', 'LOAD', { url, contentType: m.contentType, streamType: m.streamType, currentTime: req.currentTime });
+  if (url) probe(url);
+  return req;
+});
+
+for (const type of [Events.PLAYER_LOADING, Events.PLAYER_LOAD_COMPLETE, Events.PLAYING, Events.PAUSE,
+                    Events.BUFFERING, Events.ENDED, Events.MEDIA_FINISHED, Events.ABORT, Events.EMPTIED]) {
+  player.addEventListener(type, e => log('info', 'event ' + type, { time: e.currentMediaTime, reason: e.endedReason || e.isBuffering }));
+}
+player.addEventListener(Events.ERROR, e =>
+  log('error', 'media error', { detailedErrorCode: e.detailedErrorCode, reason: e.reason, error: e.error }));
+
+const playback = new cast.framework.PlaybackConfig();
+let segments = 0;
+playback.manifestRequestHandler = req => { log('info', 'manifest request', { url: req.url }); return req; };
+playback.segmentRequestHandler = req => {
+  if (segments++ < 3) log('info', 'segment request', { url: req.url });
+  return req;
+};
+
+const options = new cast.framework.CastReceiverOptions();
+options.useShakaForHls = true;
+options.playbackConfig = playback;
+context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG);
+context.start(options);
+started = true;
+log('info', 'started', { href: location.href });
+</script>
+</body>
 </html>
