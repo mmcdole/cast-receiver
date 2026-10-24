@@ -52,8 +52,9 @@ test('a LOAD starts the play as the token, with the device capabilities, and pla
   assert.equal(body.positionMs, 120000);
   assert.equal(body.audioTrackId, 'a2');
   assert.deepEqual(body.quality, { mode: 'auto' });
-  assert.deepEqual(body.capabilities.video.map((v) => v.codec), ['h264']);
-  assert.deepEqual(body.capabilities.audio.map((a) => a.codec), ['aac', 'ac3']);
+  assert.deepEqual(body.capabilities.file.video.map((v) => v.codec), ['h264']);
+  assert.deepEqual(body.capabilities.file.audio.map((a) => a.codec), ['aac', 'ac3']);
+  assert.deepEqual(body.capabilities.stream.audio.map((a) => a.codec), ['aac']);
 
   // The token goes in the Authorization header of every API request, never a URL.
   for (const q of srv.requests) {

@@ -36,20 +36,22 @@ test('capabilities from what the device says', () => {
     hdr: true,
     dolbyVision: false,
   });
-  const h264 = caps.video.find((v) => v.codec === 'h264');
+  const h264 = caps.file.video.find((v) => v.codec === 'h264');
   assert.deepEqual(h264, { codec: 'h264', profiles: ['Constrained Baseline', 'Baseline', 'Main', 'High'], maxBitDepth: 8, maxLevel: 42 });
-  const hevc = caps.video.find((v) => v.codec === 'hevc');
+  const hevc = caps.file.video.find((v) => v.codec === 'hevc');
   assert.deepEqual(hevc, { codec: 'hevc', profiles: ['Main', 'Main 10'], maxBitDepth: 10, maxLevel: 153, dynamicRanges: ['sdr', 'hdr10', 'hlg'] });
-  assert.deepEqual(caps.audio, [{ codec: 'aac', maxChannels: 6 }, { codec: 'eac3', maxChannels: 6 }]);
-  assert.deepEqual(caps.containers, ['mp4']);
+  // E-AC-3 passes through from a file; a stream has it in AAC.
+  assert.deepEqual(caps.file.audio, [{ codec: 'aac', maxChannels: 6 }, { codec: 'eac3', maxChannels: 6 }]);
+  assert.deepEqual(caps.stream.audio, [{ codec: 'aac', maxChannels: 6 }]);
+  assert.deepEqual(caps.stream.video, caps.file.video);
+  assert.deepEqual(caps.file.containers, ['mp4']);
   assert.deepEqual(caps.subtitles, ['vtt']);
-  assert.equal(caps.hls, true);
   assert.equal(caps.maxWidth, 3840);
 
   const old = capabilities({ canDisplay: (m, c, w) => !w && ['avc1.640028', 'mp4a.40.2'].includes(c), hdr: false, dolbyVision: false });
-  assert.deepEqual(old.video.map((v) => v.codec), ['h264']);
+  assert.deepEqual(old.file.video.map((v) => v.codec), ['h264']);
   assert.equal(old.maxWidth, 1920);
-  assert.equal(capabilities({ canDisplay: () => { throw new Error('not ready'); } }).video.length, 0);
+  assert.equal(capabilities({ canDisplay: () => { throw new Error('not ready'); } }).file.video.length, 0);
 });
 
 test('up next rules', () => {

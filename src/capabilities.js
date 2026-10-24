@@ -24,9 +24,9 @@ const levelCandidates = {
   hevc: [[153, 'hvc1.1.6.L153.B0'], [150, 'hvc1.1.6.L150.B0'], [123, 'hvc1.1.6.L123.B0'], [120, 'hvc1.1.6.L120.B0']],
 };
 
-// Audio in fragmented MP4, the way the server streams it. A codec the TV
-// only passes through (AC-3, E-AC-3) is offered only where the device says
-// it plays it, which it does only when the TV or receiver decodes it.
+// Audio in MP4. A codec the TV only passes through (AC-3, E-AC-3) is
+// offered only where the device says it plays it, which it does only when
+// the TV or receiver decodes it, and only from a file: see streamAudio.
 const audioCandidates = [
   { codec: 'aac', codecs: 'mp4a.40.2', channels: 6 },
   { codec: 'mp3', codecs: 'mp4a.40.34', channels: 2 },
@@ -36,12 +36,21 @@ const audioCandidates = [
   { codec: 'flac', codecs: 'flac', channels: 6 },
 ];
 
+/** The audio a stream carries: what Media Source Extensions take in fragmented MP4. */
+const streamAudio = ['aac'];
+
 /**
  * The report from a probe: canDisplay(mime, codecs, width, height,
  * framerate) is the device's own answer (CastReceiverContext's
  * canDisplayType), hdr and dolbyVision what its display supports now.
  * Files play directly only as MP4 or WebM: anything else is streamed. Text
  * subtitles are drawn as WebVTT; anything else is burned in.
+ *
+ * A file and a stream are reported apart. The device plays a file itself,
+ * passing Dolby audio through to the TV; a stream plays through Media
+ * Source Extensions, which take only AAC audio in a fragmented MP4
+ * segment, so E-AC-3 copied into a stream fails to load (as Jellyfin's
+ * receiver found too) and the server has it in AAC instead.
  */
 export function capabilities(probe) {
   const can = (mime, codecs, ...size) => {
@@ -68,10 +77,8 @@ export function capabilities(probe) {
   if (can('video/webm', 'vp9')) containers.push('webm');
   const uhd = can('video/mp4', 'hvc1.1.6.L150.B0', 3840, 2160, 30) || can('video/mp4', 'avc1.640033', 3840, 2160, 30);
   return {
-    containers,
-    hls: true,
-    video,
-    audio,
+    file: { containers, video, audio },
+    stream: { video, audio: audio.filter((a) => streamAudio.includes(a.codec)) },
     subtitles: ['vtt'],
     maxWidth: uhd ? 3840 : 1920,
     maxHeight: uhd ? 2160 : 1080,
