@@ -10,7 +10,7 @@ import { Receiver } from './receiver.js';
 import { UI } from './ui.js';
 
 const cf = globalThis.cast.framework;
-const log = new Log(debugEnabled(location.search));
+const log = new Log(true || debugEnabled(location.search)); // TEMPORARY: debugging the fallback
 const context = cf.CastReceiverContext.getInstance();
 const player = context.getPlayerManager();
 player.setMediaElement(document.getElementById('video'));
