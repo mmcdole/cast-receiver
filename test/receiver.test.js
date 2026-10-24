@@ -254,6 +254,19 @@ test('a media error falls back once, then says it can\'t play', async (t) => {
   assert.equal(ui.last.line, "This can't be played on this TV.");
 });
 
+test('a failure the framework reports twice falls back once and plays the fallback', async (t) => {
+  const { r, player, srv, ui } = setup(t, {
+    'POST plays/[^/]+/fallback': ({ path }) => [201, started({ id: `fb-${path}`, delivery: { method: 'hls', url: 'plays/fb/hls/index.m3u8' } })],
+  });
+  await player.senderLoad(senderLoad());
+  await Promise.all([r.onMediaError({ detailedErrorCode: 410 }), r.onMediaError({ detailedErrorCode: 410 })]);
+  assert.equal(srv.requests.filter((q) => q.path.endsWith('/fallback')).length, 1);
+  assert.equal(player.loads.at(-1).media.contentUrl, 'http://192.0.2.10:8484/api/v1/plays/fb/hls/index.m3u8');
+  assert.equal(player.stopped, 0);
+  assert.notEqual(ui.screen, 'error');
+  assert.equal(r.error, undefined);
+});
+
 test('closing stops the play and ends the token', async (t) => {
   const { r, player, srv } = setup(t);
   await player.senderLoad(senderLoad());

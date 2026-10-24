@@ -75,6 +75,7 @@ export class Receiver {
     this.restartWhenReachable = false;
     this.pausedAt = 0;
     this.prepared = undefined; // a play started here, which the next LOAD plays
+    this.failing = undefined; // the play whose media error is being handled
     this.switching = false; // a new play replacing the current one is loading
     this.heartbeat = undefined;
     this.countdown = undefined;
@@ -513,7 +514,19 @@ export class Receiver {
    */
   async onMediaError(e) {
     const play = this.started;
-    if (!play || this.switching) return;
+    // The framework reports one failure more than once, and the first
+    // report claims it before anything is awaited: a second one handled
+    // alongside would end the cast while the first falls back.
+    if (!play || this.switching || this.failing === play) return;
+    this.failing = play;
+    try {
+      await this.recover(play, e);
+    } finally {
+      if (this.failing === play) this.failing = undefined;
+    }
+  }
+
+  async recover(play, e) {
     this.log.error('media error', { detailedErrorCode: e.detailedErrorCode, reason: e.reason });
     try {
       await this.server.request('GET', 'server', undefined, { timeoutMs: 4000 });
