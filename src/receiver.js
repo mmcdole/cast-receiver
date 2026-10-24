@@ -100,7 +100,8 @@ export class Receiver {
     this.player.addEventListener(E.TIME_UPDATE, (e) => this.onTime(e.currentMediaTime));
     this.player.addEventListener(E.ENDED, () => this.onEnded());
     this.player.addEventListener(E.MEDIA_FINISHED, (e) => this.onFinished(e.endedReason));
-    for (const loaded of [E.PLAYER_LOADING, E.PLAYER_LOAD_COMPLETE]) this.player.addEventListener(loaded, () => this.cleanQueue());
+    this.player.addEventListener(E.PLAYER_LOADING, () => this.cleanQueue(false));
+    this.player.addEventListener(E.PLAYER_LOAD_COMPLETE, () => this.cleanQueue(true));
     this.player.addEventListener(E.ERROR, (e) => this.onMediaError(e));
     for (const request of [E.REQUEST_PLAY, E.REQUEST_PAUSE, E.REQUEST_SEEK]) {
       this.player.addEventListener(request, () => { this.autoplayRun = 0; });
@@ -752,12 +753,14 @@ export class Receiver {
 
   /**
    * Cleans the framework's queue items, which it keeps as the sender's LOAD
-   * came, token and all, and gives any sender that asks for the queue.
+   * came, token and all, and gives any sender that asks for the queue. As a
+   * load starts, the token goes and the media URLs stay, since the item can
+   * be the media the player is about to load; once loaded, the URLs go too.
    */
-  cleanQueue() {
+  cleanQueue(urls) {
     let items = [];
     try { items = this.player.getQueueManager()?.getItems() || []; } catch { /* no queue */ }
-    sanitizeMedia(items, this.status());
+    sanitizeMedia(items, this.status(), urls);
   }
 
   /** The receiver's own status, for the media status and its namespace. */

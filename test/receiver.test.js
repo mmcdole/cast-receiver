@@ -267,6 +267,25 @@ test('a failure the framework reports twice falls back once and plays the fallba
   assert.equal(r.error, undefined);
 });
 
+test('a status sent while a load is under way leaves the media it loads from alone', async (t) => {
+  const { r, player } = setup(t, {
+    'POST plays/[^/]+/fallback': ({ path }) => [201, started({ id: `fb-${path}`, delivery: { method: 'hls', url: 'plays/fb/hls/index.m3u8' } })],
+  });
+  await player.senderLoad(senderLoad());
+  await r.onMediaError({ detailedErrorCode: 100 });
+  const media = player.loads.at(-1).media;
+  // The fallback's own load: queued, starting, with a status asked for meanwhile.
+  player.emit('PLAYER_LOADING');
+  const status = player.interceptors.MEDIA_STATUS({ media, items: [{ media }] });
+  assert.equal(media.contentUrl, 'http://192.0.2.10:8484/api/v1/plays/fb/hls/index.m3u8');
+  assert.equal(player.queue[0].media.contentUrl, media.contentUrl);
+  assert.equal(status.media.contentUrl, undefined);
+  assert.equal(status.items[0].media.contentUrl, undefined);
+  // Loaded, the queue has its URLs taken out.
+  player.emit('PLAYER_LOAD_COMPLETE');
+  assert.equal(player.queue[0].media.contentUrl, undefined);
+});
+
 test('closing stops the play and ends the token', async (t) => {
   const { r, player, srv } = setup(t);
   await player.senderLoad(senderLoad());

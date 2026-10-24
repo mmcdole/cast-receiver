@@ -33,33 +33,41 @@ export function kivoStatus(s) {
  * A MEDIA_STATUS message cleaned for every sender to read, with the
  * receiver's status added. Every media object in it is cleaned, the queue's
  * items too, which the framework fills from the sender's LOAD as it came,
- * token and all.
+ * token and all. It's a copy: the media in a status can be the very object
+ * the player is loading from, and a status sent mid-load would take its URL.
  */
 export function sanitizeMediaStatus(status, kivo) {
   if (!status) return status;
-  clean(status, kivo, 0);
-  status.customData = { kivo };
-  return status;
+  const out = JSON.parse(JSON.stringify(status));
+  clean(out, kivo, 0, true);
+  out.customData = { kivo };
+  return out;
 }
 
-/** Cleans media objects, or anything holding them, in place, as sanitizeMediaStatus does. */
-export function sanitizeMedia(v, kivo) {
-  clean(v, kivo, 0);
+/**
+ * Cleans media objects, or anything holding them, in place: the queue's
+ * items, which a sender can ask for. With urls false, the media URLs stay,
+ * as they must while the player is still loading from them.
+ */
+export function sanitizeMedia(v, kivo, urls = true) {
+  clean(v, kivo, 0, urls);
 }
 
-function clean(v, kivo, depth) {
+function clean(v, kivo, depth, urls) {
   if (v === null || typeof v !== 'object' || depth > 8) return;
   if (Array.isArray(v)) {
-    for (const x of v) clean(x, kivo, depth + 1);
+    for (const x of v) clean(x, kivo, depth + 1, urls);
     return;
   }
   const media = 'contentId' in v || 'contentUrl' in v || 'entity' in v || 'streamType' in v;
   delete v.token;
-  delete v.contentUrl;
-  delete v.trackContentId;
+  if (urls) {
+    delete v.contentUrl;
+    delete v.trackContentId;
+  }
   // A load this receiver started keeps its marker, which is no secret.
   if (media) v.customData = v.customData?.prepared ? { kivo, prepared: v.customData.prepared } : { kivo };
-  for (const x of Object.values(v)) clean(x, kivo, depth + 1);
+  for (const x of Object.values(v)) clean(x, kivo, depth + 1, urls);
 }
 
 /** customData from a sender's LOAD with the token taken out, so it can't be echoed. */
