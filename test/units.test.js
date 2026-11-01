@@ -6,7 +6,7 @@ import { ApiError, NetworkError, ServerMismatch, chooseServer } from '../src/api
 import { capabilities } from '../src/capabilities.js';
 import { VERSION } from '../src/config.js';
 import { clock, heading, nextLine, remaining, runtime } from '../src/format.js';
-import { clientHeader, deviceId, deviceIdKey, deviceOf } from '../src/identity.js';
+import { deviceOf, identityHeaders } from '../src/identity.js';
 import { Log, debugEnabled, redact } from '../src/log.js';
 import { failureCode, settingsOf, workOf } from '../src/receiver.js';
 import { kivoStatus, sanitizeMediaStatus, takeToken } from '../src/status.js';
@@ -71,23 +71,15 @@ test('capabilities from what the device says', () => {
   assert.equal(capabilities({ canDisplay: () => { throw new Error('not ready'); } }).video.length, 0);
 });
 
-test('the Kivo-Client header', () => {
-  const m = new Map();
-  const storage = { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
-  let n = 0;
-  const random = () => `id-${++n}`;
+test('the identity headers', () => {
   const gtv = 'Mozilla/5.0 (Linux; Android 12.0; Build/STTL.240206.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 CrKey/1.56.500000 DeviceType/AndroidTV';
-  assert.equal(clientHeader({ serverId: 's1', storage, userAgent: gtv, random }),
-    'app="kivo-cast", app-version="2.0.0", platform="cast", os-version="1.56.500000", device-model="AndroidTV", device-id="id-1"');
-  assert.match(clientHeader({ serverId: 's1', storage, userAgent: gtv, random }), /device-id="id-1"$/, 'kept for the server');
-  assert.match(clientHeader({ serverId: 's2', storage, userAgent: gtv, random }), /device-id="id-2"$/, 'another server, another ID');
-  assert.equal(m.get(deviceIdKey('s2')), 'id-2');
-  // No storage: an ID for this load. No Cast user agent: no model.
-  const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
-  assert.equal(clientHeader({ serverId: 's1', storage: broken, userAgent: 'Mozilla/5.0', random }),
-    'app="kivo-cast", app-version="2.0.0", platform="cast", device-id="id-3"');
+  assert.deepEqual(identityHeaders(gtv), {
+    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast',
+    'Kivo-OS-Version': '1.56.500000', 'Kivo-Device-Model': 'AndroidTV',
+  });
+  // No Cast user agent: no OS version or model.
+  assert.deepEqual(identityHeaders('Mozilla/5.0'), { 'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast' });
   assert.deepEqual(deviceOf('Mozilla/5.0 CrKey/1.36.159268'), { osVersion: '1.36.159268', model: 'Chromecast' });
-  assert.match(deviceId('s9', undefined), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
 
 test('the version is the package\'s', () => {

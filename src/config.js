@@ -13,7 +13,7 @@ export const DEBUG_NAMESPACE = 'urn:x-cast:com.mmcdole.kivo.debug';
  */
 export const PROTOCOL = 2;
 
-/** The app and platform this receiver names itself by in the Kivo-Client header. */
+/** The app and platform this receiver names itself by in its identity headers. */
 export const APP = 'kivo-cast';
 export const PLATFORM = 'cast';
 

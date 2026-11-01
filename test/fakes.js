@@ -126,9 +126,9 @@ export function fakeServer(routes) {
     const method = init.method || 'GET';
     const path = u.pathname.replace(/^\/api\/v1\//, '');
     const auth = init.headers?.Authorization;
-    const client = init.headers?.['Kivo-Client'];
+    const identity = Object.fromEntries(Object.entries(init.headers || {}).filter(([k]) => k.startsWith('Kivo-')));
     const body = init.body ? JSON.parse(init.body) : undefined;
-    requests.push({ method, path, url, auth, client, body, keepalive: init.keepalive });
+    requests.push({ method, path, url, auth, identity, body, keepalive: init.keepalive });
     const key = Object.keys(routes).find((k) => {
       const [m, p] = k.split(' ');
       return m === method && new RegExp(`^${p}$`).test(path);

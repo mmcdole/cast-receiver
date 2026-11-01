@@ -15,10 +15,10 @@ and runs up next, so a cast goes on when the phone that started it is gone.
 The token goes only in the `Authorization` header; it never appears in a URL,
 a log or the media status senders read.
 
-Each API request names the receiver in a `Kivo-Client` header: `kivo-cast`, the
-version in `package.json` (and `src/config.js`), the Cast device's model and
-OS version from its user agent, and a random device ID kept in the page's
-local storage for each server.
+Each API request names the receiver in its identity headers, a header per
+field: `Kivo-App` (`kivo-cast`), `Kivo-App-Version` (the version in
+`package.json` and `src/config.js`), `Kivo-Platform` (`cast`), and the Cast
+device's `Kivo-OS-Version` and `Kivo-Device-Model` from its user agent.
 
 ## Files
 

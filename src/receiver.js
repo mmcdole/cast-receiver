@@ -8,7 +8,7 @@ import { ApiError, NetworkError, Server, ServerMismatch, chooseServer } from './
 import { capabilities } from './capabilities.js';
 import { NAMESPACE, PROTOCOL } from './config.js';
 import { clock, heading, nextLine } from './format.js';
-import { clientHeader } from './identity.js';
+import { identityHeaders } from './identity.js';
 import { kivoStatus, sanitizeMedia, sanitizeMediaStatus, selected, takeToken } from './status.js';
 import * as upnext from './upnext.js';
 
@@ -46,12 +46,11 @@ const errorLines = {
 export class Receiver {
   /**
    * cf is the Cast receiver framework (cast.framework); ui the screens;
-   * log the debug log; fetch the network; storage where the device ID is
-   * kept; userAgent the device's.
+   * log the debug log; fetch the network; userAgent the device's.
    */
   constructor({
     cf, ui, log, fetch: fetchImpl = globalThis.fetch.bind(globalThis), now = () => Date.now(),
-    storage = localStorageOrNone(), userAgent = globalThis.navigator?.userAgent || '',
+    userAgent = globalThis.navigator?.userAgent || '',
   }) {
     this.cf = cf;
     this.context = cf.CastReceiverContext.getInstance();
@@ -60,7 +59,6 @@ export class Receiver {
     this.log = log;
     this.fetch = fetchImpl;
     this.now = now;
-    this.storage = storage;
     this.userAgent = userAgent;
 
     this.server = undefined; // the Server, with the cast token
@@ -153,8 +151,7 @@ export class Receiver {
     this.ui.loading({ title: req.media?.metadata?.title || '', sub: '', image: undefined });
     try {
       const { base } = await chooseServer(custom.urls, custom.serverId, PROTOCOL, this.fetch);
-      const client = clientHeader({ serverId: custom.serverId, storage: this.storage, userAgent: this.userAgent });
-      this.server = new Server(base, token, this.fetch, client);
+      this.server = new Server(base, token, this.fetch, identityHeaders(this.userAgent));
       this.contacted();
       this.choices = {
         workId,
@@ -955,10 +952,6 @@ export function settingsOf(custom) {
  */
 function renditionCarries(rendition, trackId) {
   return Object.values(rendition).includes(trackId) || Object.values(rendition.customData || {}).includes(trackId);
-}
-
-function localStorageOrNone() {
-  try { return globalThis.localStorage; } catch { return undefined; }
 }
 
 /** The fallback code for the player's error, by the framework's detailed code. */

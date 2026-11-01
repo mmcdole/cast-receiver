@@ -1,6 +1,6 @@
 // The media server's API, as the receiver uses it: with the cast token in
 // the Authorization header, never in a URL, and never written to a log, and
-// the receiver's Kivo-Client header on every request but server info's.
+// the receiver's identity headers on every request but server info's.
 
 /** A request the server answered with a problem document. */
 export class ApiError extends Error {
@@ -36,19 +36,17 @@ export function apiRoot(base) {
   return base.replace(/\/+$/, '') + '/api/v1/';
 }
 
-/** One server, reached at base, as the cast token's user, naming itself by client, the Kivo-Client header. */
+/** One server, reached at base, as the cast token's user, naming itself by its identity headers. */
 export class Server {
-  constructor(base, token, fetchImpl = globalThis.fetch.bind(globalThis), client = '') {
+  constructor(base, token, fetchImpl = globalThis.fetch.bind(globalThis), identity = {}) {
     this.root = apiRoot(base);
     this.token = token;
     this.fetch = fetchImpl;
-    this.client = client;
+    this.identity = identity;
   }
 
   headers() {
-    const h = { Authorization: `Bearer ${this.token}` };
-    if (this.client) h['Kivo-Client'] = this.client;
-    return h;
+    return { Authorization: `Bearer ${this.token}`, ...this.identity };
   }
 
   /** An absolute URL for a path relative to the API root, such as a play's media. */

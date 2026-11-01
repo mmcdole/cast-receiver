@@ -8,7 +8,7 @@ import { FakeUI, NEXT, SERVER_ID, WORK, episode, fakeFramework, fakeServer, next
 const ok = (body) => () => [200, body];
 
 /** A receiver over fakes, with the server's routes; its timers are cleared when the test ends. */
-function setup(t, routes = {}, { logLines, answer = () => ({}), storage = memoryStorage() } = {}) {
+function setup(t, routes = {}, { logLines, answer = () => ({}) } = {}) {
   const fw = fakeFramework();
   const plays = [];
   const srv = fakeServer({
@@ -31,7 +31,7 @@ function setup(t, routes = {}, { logLines, answer = () => ({}), storage = memory
   if (logLines) log.to((level, line) => logLines.push(line));
   const ui = new FakeUI();
   const userAgent = 'Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0 Safari/537.36 CrKey/1.56.500000 DeviceType/Chromecast';
-  const r = new Receiver({ cf: fw.cf, ui, log, fetch: srv.fetch, storage, userAgent });
+  const r = new Receiver({ cf: fw.cf, ui, log, fetch: srv.fetch, userAgent });
   r.start({});
   t.after(() => {
     for (const k of ['heartbeat', 'countdown']) clearInterval(r[k]);
@@ -41,10 +41,6 @@ function setup(t, routes = {}, { logLines, answer = () => ({}), storage = memory
 }
 
 /** localStorage's calls over a Map. */
-function memoryStorage() {
-  const m = new Map();
-  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), map: m };
-}
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -108,17 +104,14 @@ test('the media status hides media URLs and adds the receiver status', async (t)
   assert.equal(status.customData.kivo.decision, undefined);
 });
 
-test('every API request but server info names the receiver in Kivo-Client, with a device ID kept per server', async (t) => {
-  const storage = memoryStorage();
-  const { player, srv } = setup(t, {}, { storage });
+test('every API request but server info names the receiver in its identity headers', async (t) => {
+  const { player, srv } = setup(t);
   await player.senderLoad(senderLoad());
-  const header = srv.requests.find((q) => q.method === 'POST' && q.path === 'plays').client;
-  const id = storage.map.get(`kivo.deviceId.${SERVER_ID}`);
-  assert.match(id, /^[0-9a-f-]{36}$/);
-  assert.equal(header, `app="kivo-cast", app-version="2.0.0", platform="cast", os-version="1.56.500000", device-model="Chromecast", device-id="${id}"`);
-  for (const q of srv.requests) assert.equal(q.client, q.path === 'server' ? undefined : header, q.path);
-  await player.senderLoad(senderLoad());
-  assert.equal(srv.requests.at(-1).client, header, 'the same ID next time');
+  const identity = {
+    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast',
+    'Kivo-OS-Version': '1.56.500000', 'Kivo-Device-Model': 'Chromecast',
+  };
+  for (const q of srv.requests) assert.deepEqual(q.identity, q.path === 'server' ? {} : identity, q.path);
 });
 
 test('a LOAD without the protocol or token is refused', async (t) => {
