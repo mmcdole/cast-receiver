@@ -8,7 +8,8 @@ import { ApiError, NetworkError, Server, ServerMismatch, chooseServer } from './
 import { capabilities } from './capabilities.js';
 import { NAMESPACE, PROTOCOL } from './config.js';
 import { clock, heading, nextLine } from './format.js';
-import { kivoStatus, sanitizeMedia, sanitizeMediaStatus, takeToken } from './status.js';
+import { clientHeader } from './identity.js';
+import { kivoStatus, sanitizeMedia, sanitizeMediaStatus, selected, takeToken } from './status.js';
 import * as upnext from './upnext.js';
 
 const HEARTBEAT_MS = 10000;
@@ -45,9 +46,13 @@ const errorLines = {
 export class Receiver {
   /**
    * cf is the Cast receiver framework (cast.framework); ui the screens;
-   * log the debug log; fetch the network.
+   * log the debug log; fetch the network; storage where the device ID is
+   * kept; userAgent the device's.
    */
-  constructor({ cf, ui, log, fetch: fetchImpl = globalThis.fetch.bind(globalThis), now = () => Date.now() }) {
+  constructor({
+    cf, ui, log, fetch: fetchImpl = globalThis.fetch.bind(globalThis), now = () => Date.now(),
+    storage = localStorageOrNone(), userAgent = globalThis.navigator?.userAgent || '',
+  }) {
     this.cf = cf;
     this.context = cf.CastReceiverContext.getInstance();
     this.player = this.context.getPlayerManager();
@@ -55,16 +60,18 @@ export class Receiver {
     this.log = log;
     this.fetch = fetchImpl;
     this.now = now;
+    this.storage = storage;
+    this.userAgent = userAgent;
 
     this.server = undefined; // the Server, with the cast token
-    this.choices = undefined; // what the play was asked for: the work, version, tracks, quality and boost
+    this.choices = undefined; // what the play was asked for: the work, version, tracks, boost and settings
     this.started = undefined; // the play: PlayStarted
     this.work = undefined; // its work's detail
     this.next = undefined; // the next episode's detail, for the card
     this.autoplayRun = 0;
     this.upNext = upnext.hidden;
     this.shownSubtitle = undefined; // a subtitle switched to without a new play, or 'off'
-    this.textTracks = new Map(); // the play's sidecar subtitles: Cast track ID → track ID
+    this.textTracks = new Map(); // the play's subtitles the player shows: Cast track ID → track ID
     this.positionMs = 0;
     this.durationMs = 0;
     this.error = undefined;
@@ -101,7 +108,7 @@ export class Receiver {
     this.player.addEventListener(E.ENDED, () => this.onEnded());
     this.player.addEventListener(E.MEDIA_FINISHED, (e) => this.onFinished(e.endedReason));
     this.player.addEventListener(E.PLAYER_LOADING, () => this.cleanQueue(false));
-    this.player.addEventListener(E.PLAYER_LOAD_COMPLETE, () => this.cleanQueue(true));
+    this.player.addEventListener(E.PLAYER_LOAD_COMPLETE, () => this.onLoaded());
     this.player.addEventListener(E.ERROR, (e) => this.onMediaError(e));
     for (const request of [E.REQUEST_PLAY, E.REQUEST_PAUSE, E.REQUEST_SEEK]) {
       this.player.addEventListener(request, () => { this.autoplayRun = 0; });
@@ -146,7 +153,8 @@ export class Receiver {
     this.ui.loading({ title: req.media?.metadata?.title || '', sub: '', image: undefined });
     try {
       const { base } = await chooseServer(custom.urls, custom.serverId, PROTOCOL, this.fetch);
-      this.server = new Server(base, token, this.fetch);
+      const client = clientHeader({ serverId: custom.serverId, storage: this.storage, userAgent: this.userAgent });
+      this.server = new Server(base, token, this.fetch, client);
       this.contacted();
       this.choices = {
         workId,
@@ -154,8 +162,7 @@ export class Receiver {
         audioTrackId: custom.audioTrackId,
         subtitleTrackId: custom.subtitleTrackId,
         dialogueBoost: custom.dialogueBoost,
-        quality: custom.quality,
-        remoteQuality: custom.remoteQuality,
+        settings: settingsOf(custom),
       };
       const position = typeof req.currentTime === 'number' && req.currentTime >= 0 ? Math.round(req.currentTime * 1000) : undefined;
       const started = await this.startPlay({ ...this.choices, positionMs: position });
@@ -170,26 +177,28 @@ export class Receiver {
   /**
    * Starts a play of choices with this device's capabilities, and reads its
    * work (and the next episode) for the screens. A version in parts is
-   * asked for again as one stream.
+   * asked for again as one stream, with direct play off.
    */
-  async startPlay(choices, overrides) {
+  async startPlay(choices, oneStream = false) {
     const body = { workId: choices.workId, capabilities: this.capabilities() };
-    for (const k of ['versionId', 'audioTrackId', 'subtitleTrackId', 'quality', 'remoteQuality', 'positionMs']) {
+    for (const k of ['versionId', 'audioTrackId', 'subtitleTrackId', 'positionMs']) {
       if (choices[k] !== undefined && choices[k] !== null && choices[k] !== '') body[k] = choices[k];
     }
     if (body.positionMs !== undefined) body.positionMs = Math.max(0, Math.round(body.positionMs));
     if (typeof choices.dialogueBoost === 'boolean') body.dialogueBoost = choices.dialogueBoost;
-    if (overrides) body.overrides = overrides;
+    const settings = { ...choices.settings };
+    if (oneStream) settings.directPlay = false;
+    if (Object.keys(settings).length > 0) body.settings = settings;
     const workP = this.work?.id === choices.workId ? Promise.resolve(this.work) : this.server.work(choices.workId);
     const started = await this.server.start(body);
     this.contacted();
-    if (started.delivery.method === 'file' && started.parts.length > 1 && !overrides) {
+    if (started.delivery === 'file' && started.parts.length > 1 && !oneStream) {
       await this.server.stop(started.id, {}).catch(() => {});
-      return this.startPlay(choices, { allowDirectPlay: false });
+      return this.startPlay(choices, true);
     }
     const work = await workP.catch(() => this.work);
     this.adopt(started, work);
-    this.log.info('play started', { decision: started.decision, local: started.local });
+    this.log.info('play started', { delivery: started.delivery, local: started.local });
     return started;
   }
 
@@ -227,14 +236,17 @@ export class Receiver {
     }).catch(() => {});
   }
 
-  /** Fills a LOAD with the play: its media URL, format, start and subtitles. */
+  /**
+   * Fills a LOAD with the play: its media URL, format, start and subtitle
+   * files. Subtitles in the stream are found once it has loaded.
+   */
   apply(req, started) {
     const m = this.cf.messages;
     const media = req.media || (req.media = new m.MediaInformation());
     media.contentId = started.workId;
-    media.contentUrl = this.server.url(started.delivery.url);
+    media.contentUrl = this.server.url(started.url);
     media.streamType = m.StreamType.BUFFERED;
-    if (started.delivery.method === 'hls') {
+    if (started.delivery === 'stream') {
       media.contentType = 'application/x-mpegurl';
       media.hlsSegmentFormat = m.HlsSegmentFormat.FMP4;
       media.hlsVideoSegmentFormat = m.HlsVideoSegmentFormat.FMP4;
@@ -249,8 +261,9 @@ export class Receiver {
     this.textTracks = new Map();
     const tracks = [];
     let active;
-    for (const s of started.subtitles || []) {
-      if (s.format !== 'vtt' || !s.ready || !s.url) continue;
+    const subtitle = selected(started.tracks || [], 'subtitle');
+    for (const s of started.tracks || []) {
+      if (s.type !== 'subtitle' || s.delivery !== 'sidecar' || s.codec !== 'webvtt' || !s.url) continue;
       const castId = tracks.length + 1;
       const t = new m.Track(castId, m.TrackType.TEXT);
       t.trackContentId = this.server.url(s.url);
@@ -261,7 +274,7 @@ export class Receiver {
       t.name = info?.title || info?.language || `Subtitles ${castId}`;
       tracks.push(t);
       this.textTracks.set(castId, s.trackId);
-      if (s.trackId === started.subtitleTrackId) active = castId;
+      if (s.trackId === subtitle) active = castId;
     }
     media.tracks = tracks;
     req.activeTrackIds = active ? [active] : [];
@@ -691,7 +704,7 @@ export class Receiver {
       case 'kivo.setDialogueBoost':
         return this.switchTo({ dialogueBoost: Boolean(msg.on) });
       case 'kivo.setQuality':
-        return this.switchTo({ quality: msg.quality, remoteQuality: msg.remoteQuality });
+        return this.switchTo({ settings: { ...this.choices?.settings, ...settingsOf(msg) } });
       case 'kivo.setVersion':
         return this.switchTo({ versionId: msg.versionId, audioTrackId: undefined, subtitleTrackId: undefined });
       case 'kivo.upNext':
@@ -708,19 +721,19 @@ export class Receiver {
   }
 
   /**
-   * Audio always starts a new play. A subtitle shows at once when the play
-   * can switch to it by itself; otherwise it starts a new play too.
+   * Each choice shows as the play's tracks say. Another audio track starts
+   * a new play, since the receiver selects none inside a play. A subtitle
+   * with a delivery shows at once; one without starts a new play.
    */
   async setTracks({ audioTrackId, subtitleTrackId }) {
     if (!this.started) return;
-    if (audioTrackId && audioTrackId !== this.started.audioTrackId) {
+    if (audioTrackId && audioTrackId !== selected(this.started.tracks || [], 'audio')) {
       return this.switchTo({ audioTrackId, ...(subtitleTrackId ? { subtitleTrackId } : {}) });
     }
     if (!subtitleTrackId) return;
-    if (this.instantSubtitle(subtitleTrackId)) {
-      const castId = [...this.textTracks].find(([, id]) => id === subtitleTrackId)?.[0];
-      this.player.getTextTracksManager().setActiveByIds(castId ? [castId] : []);
+    if (this.showSubtitle(subtitleTrackId)) {
       this.shownSubtitle = subtitleTrackId;
+      this.choices = { ...this.choices, subtitleTrackId };
       this.beat();
       this.broadcast();
       return;
@@ -729,18 +742,31 @@ export class Receiver {
   }
 
   /**
-   * Whether the play shows a subtitle choice by itself: off, or a sidecar
-   * file, while the play's own subtitle isn't burned in or in its stream.
+   * Shows a subtitle choice as its delivery says, if it has one the player
+   * shows: off, a burned-in subtitle (already in the picture), a subtitle
+   * file or a rendition of the stream. False when it needs a new play.
    */
-  instantSubtitle(trackId) {
-    const own = this.started.decision?.tracks?.find((t) => t.type === 'subtitle');
-    if (own && (own.method === 'burnIn' || own.method === 'stream')) return false;
-    if (trackId === 'off') return true;
-    const sw = this.started.subtitleTracks?.find((t) => t.trackId === trackId);
-    return sw?.onSwitch === 'instant' && [...this.textTracks.values()].includes(trackId);
+  showSubtitle(trackId) {
+    const track = (this.started.tracks || []).find((t) => t.type === 'subtitle' && t.trackId === trackId);
+    switch (track?.delivery) {
+      case 'none':
+        this.setActiveText([]);
+        return true;
+      case 'burn':
+        return true;
+      case 'sidecar':
+      case 'stream': {
+        const castId = [...this.textTracks].find(([, id]) => id === trackId)?.[0];
+        if (castId === undefined) return false;
+        this.setActiveText([castId]);
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
-  /** A stock sender's subtitle switch, among the play's sidecar tracks. */
+  /** A stock sender's subtitle switch, among the play's subtitle files and renditions. */
   onEditTracks(req) {
     const ids = req.activeTrackIds;
     if (Array.isArray(ids) && this.started) {
@@ -761,6 +787,37 @@ export class Receiver {
     let items = [];
     try { items = this.player.getQueueManager()?.getItems() || []; } catch { /* no queue */ }
     sanitizeMedia(items, this.status(), urls);
+  }
+
+  /**
+   * A load completed. A stream's subtitle renditions become text tracks the
+   * player has made: each is matched to its track by the ID the playlist
+   * gives it (STABLE-RENDITION-ID) where the player keeps it, else by
+   * order, as the playlist lists them in the order of the play's tracks.
+   * Then the subtitle showing is set, since the player may pick its own.
+   */
+  onLoaded() {
+    this.cleanQueue(true);
+    const play = this.started;
+    if (!play || play.delivery !== 'stream') return;
+    const streamed = (play.tracks || []).filter((t) => t.type === 'subtitle' && t.delivery === 'stream');
+    if (streamed.length === 0) return;
+    let renditions = [];
+    try {
+      renditions = (this.player.getTextTracksManager().getTracks() || []).filter((t) => !this.textTracks.has(t.trackId));
+    } catch { /* no text tracks */ }
+    const byId = renditions.some((r) => streamed.some((t) => renditionCarries(r, t.trackId)));
+    streamed.forEach((t, i) => {
+      const r = byId ? renditions.find((x) => renditionCarries(x, t.trackId)) : renditions[i];
+      if (r) this.textTracks.set(r.trackId, t.trackId);
+    });
+    const showing = this.shownSubtitle ?? selected(play.tracks, 'subtitle') ?? 'off';
+    const castId = [...this.textTracks].find(([, id]) => id === showing)?.[0];
+    this.setActiveText(castId === undefined ? [] : [castId]);
+  }
+
+  setActiveText(ids) {
+    try { this.player.getTextTracksManager().setActiveByIds(ids); } catch { /* nothing loaded */ }
   }
 
   /** The receiver's own status, for the media status and its namespace. */
@@ -875,6 +932,33 @@ export function workOf(media) {
   if (media?.contentId) return media.contentId;
   const m = /^kivo:\/\/work\/(.+)$/.exec(media?.entity || '');
   return m ? m[1] : undefined;
+}
+
+/**
+ * The play's settings from a LOAD's customData or a kivo.setQuality
+ * message: the quality, the remote quality and any other the sender gives.
+ */
+export function settingsOf(custom) {
+  const out = {};
+  for (const k of ['quality', 'remoteQuality']) {
+    if (custom?.[k] && typeof custom[k] === 'object') out[k] = custom[k];
+  }
+  for (const k of ['directPlay', 'burnSubtitles']) {
+    if (typeof custom?.[k] === 'boolean') out[k] = custom[k];
+  }
+  return out;
+}
+
+/**
+ * Whether a text track the player made from a rendition carries the track
+ * ID trackId, in any of its own fields or its custom data.
+ */
+function renditionCarries(rendition, trackId) {
+  return Object.values(rendition).includes(trackId) || Object.values(rendition.customData || {}).includes(trackId);
+}
+
+function localStorageOrNone() {
+  try { return globalThis.localStorage; } catch { return undefined; }
 }
 
 /** The fallback code for the player's error, by the framework's detailed code. */

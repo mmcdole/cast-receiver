@@ -22,7 +22,13 @@ export class FakePlayer {
   getPlayerState() { return this.state; }
   seek(t) { this.time = t; }
   stop() { this.stopped++; this.state = 'IDLE'; this.emit('MEDIA_FINISHED', { endedReason: 'STOPPED' }); }
-  getTextTracksManager() { return { setActiveByIds: (ids) => { this.active = ids; } }; }
+  /** The text tracks: a load's sidecars, then the renditions a stream has once loaded (renditions). */
+  getTextTracksManager() {
+    return {
+      setActiveByIds: (ids) => { this.active = ids; },
+      getTracks: () => [...(this.loads.at(-1)?.media?.tracks || []), ...(this.renditions || [])],
+    };
+  }
   setMediaElement() {}
   getQueueManager() { return { getItems: () => this.queue || [] }; }
   /**
@@ -120,8 +126,9 @@ export function fakeServer(routes) {
     const method = init.method || 'GET';
     const path = u.pathname.replace(/^\/api\/v1\//, '');
     const auth = init.headers?.Authorization;
+    const client = init.headers?.['Kivo-Client'];
     const body = init.body ? JSON.parse(init.body) : undefined;
-    requests.push({ method, path, url, auth, body, keepalive: init.keepalive });
+    requests.push({ method, path, url, auth, client, body, keepalive: init.keepalive });
     const key = Object.keys(routes).find((k) => {
       const [m, p] = k.split(' ');
       return m === method && new RegExp(`^${p}$`).test(path);
@@ -139,18 +146,26 @@ export function fakeServer(routes) {
   return { fetch, requests };
 }
 
+/**
+ * A play as the server starts it: a stream with its video and first audio
+ * track selected, s1 a subtitle file that shows at once, s2 one that takes
+ * a new play, and subtitles off.
+ */
 export function started(over = {}) {
+  const id = over.id || 'play-1';
   return {
-    id: 'play-1', workId: WORK, versionId: 'v1', startMs: 60000, durationMs: 45 * 60000, local: true,
-    delivery: { method: 'hls', url: 'plays/play-1/hls/index.m3u8' },
-    decision: { summary: 'directStream', tracks: [{ type: 'subtitle', trackId: 's0', method: 'sidecar' }] },
-    parts: [{ durationMs: 45 * 60000 }],
-    subtitles: [
-      { trackId: 's1', format: 'vtt', ready: true, url: 'plays/play-1/subtitles/s1.vtt' },
-      { trackId: 's2', format: 'vtt', ready: false },
+    id, workId: WORK, versionId: 'v1', startMs: 60000, durationMs: 45 * 60000, local: true,
+    delivery: 'stream',
+    url: `plays/${id}/hls/index.m3u8`,
+    tracks: [
+      { trackId: 'v0', type: 'video', selected: true, delivery: 'stream', codec: 'h264' },
+      { trackId: 'a1', type: 'audio', selected: true, delivery: 'stream', codec: 'aac', transcode: { channels: 2, bitrateBps: 192000 }, reason: 'audioCodecUnsupported' },
+      { trackId: 'a9', type: 'audio' },
+      { trackId: 's1', type: 'subtitle', delivery: 'sidecar', codec: 'webvtt', url: `plays/${id}/subtitles/s1.vtt` },
+      { trackId: 's2', type: 'subtitle', reason: 'subtitlePreparing' },
+      { trackId: 'off', type: 'subtitle', selected: true, delivery: 'none' },
     ],
-    subtitleTracks: [{ trackId: 's1', onSwitch: 'instant' }, { trackId: 's2', onSwitch: 'newPlay' }],
-    audioTrackId: 'a1',
+    parts: [{ durationMs: 45 * 60000 }],
     chapters: [],
     ...over,
   };
@@ -175,7 +190,7 @@ export function senderLoad(custom = {}, currentTime) {
     media: {
       contentId: WORK,
       metadata: { title: 'Reload', images: [{ url: 'https://sender.example/art.jpg' }] },
-      customData: { kivo: 1, serverId: SERVER_ID, urls: ['http://192.0.2.10:8484', 'https://media.example'], token: 'SECRET-CAST-TOKEN', ...custom },
+      customData: { kivo: 2, serverId: SERVER_ID, urls: ['http://192.0.2.10:8484', 'https://media.example'], token: 'SECRET-CAST-TOKEN', ...custom },
     },
   };
   if (currentTime !== undefined) req.currentTime = currentTime;

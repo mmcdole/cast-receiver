@@ -3,7 +3,7 @@
 // namespace. Tokens and play IDs never reach it: keys that can hold one are
 // redacted, and URLs are cut to their path's shape.
 
-const SECRET_KEYS = /^(token|authorization|contentUrl|trackContentId|url|urls|delivery|parts|subtitles|previews)$/i;
+const SECRET_KEYS = /^(token|authorization|contentUrl|trackContentId|url|urls|parts|previews)$/i;
 
 /** v with anything that can hold a credential replaced. */
 export function redact(v, depth = 0) {

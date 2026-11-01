@@ -16,4 +16,11 @@ export const DEBUG_NAMESPACE = 'urn:x-cast:com.mmcdole.kivo.debug';
  * server: the LOAD's customData, the status and messages here, and the
  * server's cast routes. The server states its own in server info.
  */
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
+
+/** The app and platform this receiver names itself by in the Kivo-Client header. */
+export const APP = 'kivo-cast';
+export const PLATFORM = 'cast';
+
+/** The receiver's version, as package.json gives it. */
+export const VERSION = '2.0.0';

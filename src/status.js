@@ -5,7 +5,9 @@
 
 /**
  * The receiver's own status, which senders draw their menus and stream
- * info from: the play's decisions and choices, up next, and any error.
+ * info from: the play's tracks and choices, up next, and any error. The
+ * tracks are the play's, with the subtitle showing marked selected, and
+ * without the URLs of subtitle files, which hold the play's ID.
  */
 export function kivoStatus(s) {
   const out = { error: s.error || null };
@@ -13,20 +15,32 @@ export function kivoStatus(s) {
   if (s.nextWorkId) out.nextWorkId = s.nextWorkId;
   const p = s.started;
   if (p) {
+    const tracks = p.tracks || [];
+    const subtitle = s.shownSubtitle ?? selected(tracks, 'subtitle') ?? 'off';
     out.versionId = p.versionId;
-    out.decision = p.decision;
+    out.tracks = tracks.map((t) => statusTrack(t, subtitle));
     if (p.quality) out.quality = p.quality;
     if (p.limitBps) out.limitBps = p.limitBps;
     if (p.dialogueBoost) out.dialogueBoost = p.dialogueBoost;
-    if (p.audioTrackId) out.audioTrackId = p.audioTrackId;
-    const subtitle = s.shownSubtitle ?? p.subtitleTrackId;
-    if (subtitle && subtitle !== 'off') out.subtitleTrackId = subtitle;
-    if (p.subtitleTracks) out.subtitleTracks = p.subtitleTracks;
+    const audio = selected(tracks, 'audio');
+    if (audio) out.audioTrackId = audio;
+    if (subtitle !== 'off') out.subtitleTrackId = subtitle;
     out.local = p.local;
   }
   if (s.upNext && s.upNext.phase !== 'hidden') out.upNext = { phase: s.upNext.phase, secondsLeft: s.upNext.secondsLeft };
   if (s.errorMessage) out.message = s.errorMessage;
   return out;
+}
+
+/** The ID of the track of type the play shows, if any. */
+export function selected(tracks, type) {
+  return tracks.find((t) => t.type === type && t.selected)?.trackId;
+}
+
+function statusTrack(t, subtitle) {
+  const { url, fonts, selected: _, ...rest } = t;
+  const shows = t.type === 'subtitle' ? t.trackId === subtitle : t.selected;
+  return shows ? { ...rest, selected: true } : rest;
 }
 
 /**

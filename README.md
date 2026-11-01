@@ -15,13 +15,19 @@ and runs up next, so a cast goes on when the phone that started it is gone.
 The token goes only in the `Authorization` header; it never appears in a URL,
 a log or the media status senders read.
 
+Each API request names the receiver in a `Kivo-Client` header: `kivo-cast`, the
+version in `package.json` (and `src/config.js`), the Cast device's model and
+OS version from its user agent, and a random device ID kept in the page's
+local storage for each server.
+
 ## Files
 
 - `index.html`, `receiver.css`: the page and its screens.
 - `src/main.js`: starts the framework, with the debug log when asked.
 - `src/receiver.js`: loads, plays, heartbeats, track changes, up next, errors.
-- `src/api.js`, `src/capabilities.js`, `src/upnext.js`, `src/status.js`,
-  `src/format.js`, `src/log.js`, `src/ui.js`, `src/config.js`: the parts.
+- `src/api.js`, `src/capabilities.js`, `src/identity.js`, `src/upnext.js`,
+  `src/status.js`, `src/format.js`, `src/log.js`, `src/ui.js`,
+  `src/config.js`: the parts.
 - `test/`: the logic, under a stand-in for the Cast framework.
 
 The page uses only relative URLs, so it works at any path on any host.

@@ -1,5 +1,6 @@
 // The media server's API, as the receiver uses it: with the cast token in
-// the Authorization header, never in a URL, and never written to a log.
+// the Authorization header, never in a URL, and never written to a log, and
+// the receiver's Kivo-Client header on every request but server info's.
 
 /** A request the server answered with a problem document. */
 export class ApiError extends Error {
@@ -35,12 +36,19 @@ export function apiRoot(base) {
   return base.replace(/\/+$/, '') + '/api/v1/';
 }
 
-/** One server, reached at base, as the cast token's user. */
+/** One server, reached at base, as the cast token's user, naming itself by client, the Kivo-Client header. */
 export class Server {
-  constructor(base, token, fetchImpl = globalThis.fetch.bind(globalThis)) {
+  constructor(base, token, fetchImpl = globalThis.fetch.bind(globalThis), client = '') {
     this.root = apiRoot(base);
     this.token = token;
     this.fetch = fetchImpl;
+    this.client = client;
+  }
+
+  headers() {
+    const h = { Authorization: `Bearer ${this.token}` };
+    if (this.client) h['Kivo-Client'] = this.client;
+    return h;
   }
 
   /** An absolute URL for a path relative to the API root, such as a play's media. */
@@ -49,7 +57,7 @@ export class Server {
   }
 
   async request(method, path, body, { timeoutMs = TIMEOUT_MS, keepalive = false } = {}) {
-    const headers = { Authorization: `Bearer ${this.token}` };
+    const headers = this.headers();
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const res = await send(this.fetch, this.url(path), {
       method, headers, keepalive, body: body === undefined ? undefined : JSON.stringify(body),
@@ -74,9 +82,7 @@ export class Server {
 
   /** An image as an object URL, fetched with the token; the caller revokes it. */
   async image(id, width) {
-    const res = await send(this.fetch, this.url(`images/${id}?width=${width}`), {
-      headers: { Authorization: `Bearer ${this.token}` },
-    }, TIMEOUT_MS);
+    const res = await send(this.fetch, this.url(`images/${id}?width=${width}`), { headers: this.headers() }, TIMEOUT_MS);
     if (!res.ok) throw new ApiError(res.status);
     return URL.createObjectURL(await res.blob());
   }
