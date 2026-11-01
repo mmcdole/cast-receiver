@@ -2,7 +2,6 @@
 // screen), paused, buffering or seeking, up next, and an error. One shows at
 // a time, with up next over playback.
 
-import { NAME } from './config.js';
 import { clock, remaining } from './format.js';
 
 /** How long each idle backdrop shows. */
@@ -18,7 +17,6 @@ export class UI {
     this.screens = { launch: $('#launch'), idle: $('#idle'), loading: $('#loading'), paused: $('#paused'), error: $('#error') };
     this.card = $('#upnext');
     this.dots = $('#dots');
-    for (const el of doc.querySelectorAll('.wordmark')) el.textContent = NAME;
     this.rotation = undefined;
     this.images = [];
   }
@@ -59,7 +57,7 @@ export class UI {
     this.rotation = undefined;
   }
 
-  /** The receiver starting: the wordmark and a spinner. */
+  /** The receiver starting: the logo and a spinner. */
   launching() {
     this.hideUpNext();
     this.still(undefined);
@@ -69,7 +67,7 @@ export class UI {
 
   /**
    * Nothing playing: the user's backdrops, dimmed, one every 20 seconds,
-   * with the wordmark lower left; without any, the wordmark alone.
+   * with the logo lower left; without any, the logo alone.
    */
   idle(urls = []) {
     this.hideUpNext();

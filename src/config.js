@@ -1,9 +1,4 @@
-// What ties this receiver to the media server and its senders. The name is
-// the wordmark the idle, launch and paused screens show, and appears
-// nowhere else.
-
-/** The wordmark. */
-export const NAME = 'Kivo';
+// What ties this receiver to the media server and its senders.
 
 /** The custom message namespace senders and this receiver talk on. */
 export const NAMESPACE = 'urn:x-cast:com.mmcdole.kivo';

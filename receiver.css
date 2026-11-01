@@ -59,14 +59,15 @@ body.video #video { visibility: visible; }
 #low { background: var(--low); top: auto; height: calc(520 * var(--u)); }
 #low.short { height: calc(420 * var(--u)); }
 
-.wordmark { font-weight: 800; letter-spacing: -.03em; color: var(--text); line-height: 1; }
+/* The Kivo lockup, its drawing cropped to the artwork, so its height is the logo's. */
+.wordmark { display: block; width: auto; }
 
-#launch .wordmark { position: absolute; left: 0; right: 0; top: calc(470 * var(--u)); text-align: center; font-size: calc(120 * var(--u)); }
-#launch .spinner { position: absolute; left: calc(928 * var(--u)); top: calc(680 * var(--u)); }
+#launch { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(72 * var(--u)); }
+#launch .wordmark { height: calc(88 * var(--u)); }
 #launch.plain .spinner { display: none; }
 
-#idle .wordmark { position: absolute; left: calc(96 * var(--u)); bottom: calc(96 * var(--u)); font-size: calc(72 * var(--u)); }
-#dots { position: absolute; right: calc(96 * var(--u)); bottom: calc(108 * var(--u)); display: flex; gap: calc(12 * var(--u)); }
+#idle .wordmark { position: absolute; left: calc(96 * var(--u)); bottom: calc(96 * var(--u)); height: calc(56 * var(--u)); }
+#dots { position: absolute; right: calc(96 * var(--u)); bottom: calc(118 * var(--u)); display: flex; gap: calc(12 * var(--u)); }
 #dots i { width: calc(12 * var(--u)); height: calc(12 * var(--u)); border-radius: 50%; background: rgba(255, 255, 255, .35); }
 #dots i.on { background: #fff; }
 
@@ -96,7 +97,7 @@ body.video #video { visibility: visible; }
 #paused .glyph svg { width: calc(88 * var(--u)); height: calc(88 * var(--u)); }
 #paused .title { font-size: calc(48 * var(--u)); font-weight: 600; line-height: calc(60 * var(--u)); }
 #paused .sub { font-size: calc(28 * var(--u)); }
-#paused .wordmark { margin-left: auto; font-size: calc(32 * var(--u)); color: rgba(236, 238, 242, .55); }
+#paused .wordmark { margin-left: auto; height: calc(28 * var(--u)); opacity: .55; flex: none; }
 #paused .pause { display: block; }
 #paused .spinner { display: none; }
 #paused.buffering .pause { display: none; }

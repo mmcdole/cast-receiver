@@ -22,7 +22,8 @@ local storage for each server.
 
 ## Files
 
-- `index.html`, `receiver.css`: the page and its screens.
+- `index.html`, `receiver.css`, `lockup.svg`: the page, its screens and the
+  logo they show.
 - `src/main.js`: starts the framework, with the debug log when asked.
 - `src/receiver.js`: loads, plays, heartbeats, track changes, up next, errors.
 - `src/api.js`, `src/capabilities.js`, `src/identity.js`, `src/upnext.js`,
