@@ -52,7 +52,7 @@ test('capabilities from what the device says', () => {
     { codec: 'eac3', delivery: ['file'], maxChannels: 6 },
   ]);
   assert.deepEqual(caps.file, { containers: ['mp4'], trackSelection: false });
-  assert.deepEqual(caps.subtitles, [{ codec: 'webvtt', delivery: ['stream', 'sidecar'] }]);
+  assert.deepEqual(caps.subtitles, [{ codec: 'webvtt', delivery: ['stream', 'external'] }]);
 
   // 4K only at 30 frames, but 1080p at 60: a second entry says so.
   const uhd30 = capabilities({
@@ -151,7 +151,7 @@ test('kivo status', () => {
     tracks: [
       { trackId: 'v0', type: 'video', selected: true, delivery: 'file', index: 0 },
       { trackId: 'a', type: 'audio', selected: true, delivery: 'file', index: 1 },
-      { trackId: 's', type: 'subtitle', selected: true, delivery: 'sidecar', codec: 'webvtt', url: 'plays/PLAY-ID/subtitles/s.vtt' },
+      { trackId: 's', type: 'subtitle', selected: true, delivery: 'external', codec: 'webvtt', url: 'plays/PLAY-ID/subtitles/s.vtt' },
       { trackId: 'off', type: 'subtitle', delivery: 'none' },
     ],
   };
@@ -160,7 +160,7 @@ test('kivo status', () => {
   assert.equal(s.subtitleTrackId, undefined); // switched off
   assert.equal(s.audioTrackId, 'a');
   assert.deepEqual(s.tracks.filter((t) => t.selected).map((t) => t.trackId), ['v0', 'a', 'off']);
-  assert.deepEqual(s.tracks[2], { trackId: 's', type: 'subtitle', delivery: 'sidecar', codec: 'webvtt' });
+  assert.deepEqual(s.tracks[2], { trackId: 's', type: 'subtitle', delivery: 'external', codec: 'webvtt' });
   assert.deepEqual(s.upNext, { phase: 'showing', secondsLeft: 7 });
   assert.equal(s.error, null);
   assert.equal(kivoStatus({ started }).subtitleTrackId, 's');

@@ -64,7 +64,7 @@ test('a LOAD starts the play as the token, with the device capabilities, and pla
   assert.equal(body.quality, undefined);
   assert.deepEqual(body.capabilities.video.map((v) => [v.codec, v.delivery]), [['h264', ['file', 'stream']]]);
   assert.deepEqual(body.capabilities.audio.map((a) => [a.codec, a.delivery]), [['aac', ['file', 'stream']], ['ac3', ['file']]]);
-  assert.deepEqual(body.capabilities.subtitles, [{ codec: 'webvtt', delivery: ['stream', 'sidecar'] }]);
+  assert.deepEqual(body.capabilities.subtitles, [{ codec: 'webvtt', delivery: ['stream', 'external'] }]);
   assert.deepEqual(body.capabilities.file, { containers: ['mp4'], trackSelection: false });
 
   // The token goes in the Authorization header of every API request, never a URL.
@@ -102,7 +102,7 @@ test('the media status hides media URLs and adds the receiver status', async (t)
   assert.equal(status.customData.kivo.audioTrackId, 'a1');
   assert.equal(status.customData.kivo.subtitleTrackId, undefined);
   assert.deepEqual(status.customData.kivo.tracks.map((t) => [t.trackId, t.delivery, t.selected]), [
-    ['v0', 'stream', true], ['a1', 'stream', true], ['a9', undefined, undefined], ['s1', 'sidecar', undefined],
+    ['v0', 'stream', true], ['a1', 'stream', true], ['a9', undefined, undefined], ['s1', 'external', undefined],
     ['s2', undefined, undefined], ['off', 'none', true],
   ]);
   assert.equal(status.customData.kivo.decision, undefined);
@@ -292,7 +292,7 @@ test('a file plays directly, with its subtitle file showing; one in parts is ask
     tracks: [
       { trackId: 'v0', type: 'video', selected: true, delivery: 'file', codec: 'h264', index: 0 },
       { trackId: 'a1', type: 'audio', selected: true, delivery: 'file', codec: 'eac3', index: 1 },
-      { trackId: 's1', type: 'subtitle', selected: true, delivery: 'sidecar', codec: 'webvtt', url: `plays/${id}/subtitles/s1.vtt` },
+      { trackId: 's1', type: 'subtitle', selected: true, delivery: 'external', codec: 'webvtt', url: `plays/${id}/subtitles/s1.vtt` },
       { trackId: 'off', type: 'subtitle', delivery: 'none' },
     ],
   });

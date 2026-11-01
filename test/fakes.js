@@ -22,7 +22,7 @@ export class FakePlayer {
   getPlayerState() { return this.state; }
   seek(t) { this.time = t; }
   stop() { this.stopped++; this.state = 'IDLE'; this.emit('MEDIA_FINISHED', { endedReason: 'STOPPED' }); }
-  /** The text tracks: a load's sidecars, then the renditions a stream has once loaded (renditions). */
+  /** The text tracks: a load's external subtitles, then the renditions a stream has once loaded (renditions). */
   getTextTracksManager() {
     return {
       setActiveByIds: (ids) => { this.active = ids; },
@@ -161,7 +161,7 @@ export function started(over = {}) {
       { trackId: 'v0', type: 'video', selected: true, delivery: 'stream', codec: 'h264' },
       { trackId: 'a1', type: 'audio', selected: true, delivery: 'stream', codec: 'aac', transcode: { channels: 2, bitrateBps: 192000 }, reason: 'audioCodecUnsupported' },
       { trackId: 'a9', type: 'audio' },
-      { trackId: 's1', type: 'subtitle', delivery: 'sidecar', codec: 'webvtt', url: `plays/${id}/subtitles/s1.vtt` },
+      { trackId: 's1', type: 'subtitle', delivery: 'external', codec: 'webvtt', url: `plays/${id}/subtitles/s1.vtt` },
       { trackId: 's2', type: 'subtitle', reason: 'subtitlePreparing' },
       { trackId: 'off', type: 'subtitle', selected: true, delivery: 'none' },
     ],

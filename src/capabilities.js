@@ -80,7 +80,7 @@ export function capabilities(probe) {
     file: { containers, trackSelection: false },
     video,
     audio,
-    subtitles: [{ codec: 'webvtt', delivery: ['stream', 'sidecar'] }],
+    subtitles: [{ codec: 'webvtt', delivery: ['stream', 'external'] }],
   };
 }
 

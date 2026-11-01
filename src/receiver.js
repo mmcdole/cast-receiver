@@ -263,7 +263,7 @@ export class Receiver {
     let active;
     const subtitle = selected(started.tracks || [], 'subtitle');
     for (const s of started.tracks || []) {
-      if (s.type !== 'subtitle' || s.delivery !== 'sidecar' || s.codec !== 'webvtt' || !s.url) continue;
+      if (s.type !== 'subtitle' || s.delivery !== 'external' || s.codec !== 'webvtt' || !s.url) continue;
       const castId = tracks.length + 1;
       const t = new m.Track(castId, m.TrackType.TEXT);
       t.trackContentId = this.server.url(s.url);
@@ -754,7 +754,7 @@ export class Receiver {
         return true;
       case 'burn':
         return true;
-      case 'sidecar':
+      case 'external':
       case 'stream': {
         const castId = [...this.textTracks].find(([, id]) => id === trackId)?.[0];
         if (castId === undefined) return false;
