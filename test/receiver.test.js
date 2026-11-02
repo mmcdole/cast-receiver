@@ -34,7 +34,7 @@ function setup(t, routes = {}, { logLines, answer = () => ({}) } = {}) {
   const r = new Receiver({ cf: fw.cf, ui, log, fetch: srv.fetch, userAgent });
   r.start({});
   t.after(() => {
-    for (const k of ['heartbeat', 'countdown']) clearInterval(r[k]);
+    clearInterval(r.heartbeat);
     for (const k of ['idleTimer', 'pausedTimer']) clearTimeout(r[k]);
   });
   return { r, fw, srv, ui, plays, player: fw.player, context: fw.context };
@@ -306,7 +306,7 @@ test('a file plays directly, with its subtitle file showing; one in parts is ask
   assert.equal(again.media.contentType, 'application/x-mpegurl');
 });
 
-test('up next counts down near the end and plays the next episode', async (t) => {
+test('up next counts the time left near the end and plays the next episode when it ends', async (t) => {
   const { r, player, plays } = setup(t);
   await player.senderLoad(senderLoad());
   await settle(); // the next episode's detail
@@ -316,9 +316,12 @@ test('up next counts down near the end and plays the next episode', async (t) =>
   assert.equal(r.status().upNext.phase, 'showing');
   assert.equal(r.ui.card.title, 'Triple Point');
   assert.equal(r.ui.card.line, 'Next · S3 · E5');
-  clearInterval(r.countdown);
-  r.countdown = undefined;
-  for (let i = 0; i < 10; i++) r.countDown();
+  assert.equal(r.ui.card.secondsLeft, 34);
+  player.emit('TIME_UPDATE', { currentMediaTime: (d - 1000) / 1000 });
+  assert.equal(r.status().upNext.secondsLeft, 1);
+  await settle();
+  assert.equal(plays.length, 1, 'nothing plays before the end');
+  await r.onEnded();
   await settle();
   assert.equal(plays.length, 2);
   assert.equal(plays[1].body.workId, NEXT);

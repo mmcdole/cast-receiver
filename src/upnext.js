@@ -1,9 +1,8 @@
 // Up next for an episode with a next one, by the same rules as every other
-// player: its card a fixed time before the end, a 10-second countdown, and
-// "Still watching?" after three episodes played on without input.
+// player: its card a fixed time before the end, counting the seconds left,
+// the next episode when this one ends, and "Still watching?" after three
+// episodes played on without input.
 
-/** Seconds the card counts down before the next episode plays. */
-export const COUNTDOWN_SECONDS = 10;
 /** Episodes played on by themselves before asking "Still watching?". */
 export const AUTOPLAY_LIMIT = 3;
 const MIN_EPISODE_MS = 10 * 60000;
@@ -20,35 +19,33 @@ export function showAtMs(durationMs) {
   return durationMs - lead;
 }
 
-/** The card's state: hidden, showing (counting down), dismissed, or stillWatching. */
-export const hidden = Object.freeze({ phase: 'hidden', secondsLeft: COUNTDOWN_SECONDS });
+/** The card's state: hidden, showing (counting the seconds left), dismissed, or stillWatching. */
+export const hidden = Object.freeze({ phase: 'hidden', secondsLeft: 0 });
 
 /** Whether the card shows. */
 export function shows(s) {
   return s.phase === 'showing' || s.phase === 'stillWatching';
 }
 
-/** Whether the countdown ran out: the next episode plays now. */
-export function playsNext(s) {
-  return s.phase === 'showing' && s.secondsLeft === 0;
+/** The whole seconds left in an episode of durationMs at positionMs. */
+function secondsToEnd(positionMs, durationMs) {
+  return Math.max(0, Math.ceil((durationMs - positionMs) / 1000));
 }
 
 /**
  * The card at positionMs: it appears at its time with 20 seconds or more
  * left, asking "Still watching?" unless autoplay is allowed, and a position
- * before its time hides it again. The same object when nothing changes.
+ * before its time hides it again. Showing, it counts the seconds left in the
+ * episode. The same object when nothing changes.
  */
 export function at(s, positionMs, durationMs, autoplayAllowed) {
   const when = showAtMs(durationMs);
-  if (positionMs < (when ?? durationMs - MIN_LEFT_MS)) return s.phase === 'hidden' && s.secondsLeft === COUNTDOWN_SECONDS ? s : hidden;
+  if (positionMs < (when ?? durationMs - MIN_LEFT_MS)) return s.phase === 'hidden' ? s : hidden;
+  const secondsLeft = secondsToEnd(positionMs, durationMs);
+  if (s.phase === 'showing') return secondsLeft === s.secondsLeft ? s : { ...s, secondsLeft };
   const appears = s.phase === 'hidden' && when !== undefined && durationMs - positionMs >= MIN_LEFT_MS;
   if (!appears) return s;
-  return { phase: autoplayAllowed ? 'showing' : 'stillWatching', secondsLeft: COUNTDOWN_SECONDS };
-}
-
-/** A second passed: the countdown runs only while playing. */
-export function tick(s, playing) {
-  return s.phase === 'showing' && playing && s.secondsLeft > 0 ? { ...s, secondsLeft: s.secondsLeft - 1 } : s;
+  return autoplayAllowed ? { phase: 'showing', secondsLeft } : { phase: 'stillWatching', secondsLeft: 0 };
 }
 
 /** Hide: the card stays away for the rest of the episode, which still plays on at its end. */

@@ -103,11 +103,12 @@ test('up next rules', () => {
   let s = upnext.at(upnext.hidden, d - 60000, d, true);
   assert.equal(s, upnext.hidden);
   s = upnext.at(s, d - 34000, d, true);
-  assert.deepEqual(s, { phase: 'showing', secondsLeft: 10 });
-  assert.equal(upnext.at(s, d - 33000, d, true), s);
-  for (let i = 0; i < 10; i++) s = upnext.tick(s, true);
-  assert.ok(upnext.playsNext(s));
-  assert.deepEqual(upnext.tick({ phase: 'showing', secondsLeft: 5 }, false), { phase: 'showing', secondsLeft: 5 });
+  assert.deepEqual(s, { phase: 'showing', secondsLeft: 34 });
+  assert.equal(upnext.at(s, d - 33500, d, true), s);
+  s = upnext.at(s, d - 33000, d, true);
+  assert.deepEqual(s, { phase: 'showing', secondsLeft: 33 });
+  assert.deepEqual(upnext.at(s, d - 400, d, true), { phase: 'showing', secondsLeft: 1 });
+  assert.deepEqual(upnext.at(s, d, d, true), { phase: 'showing', secondsLeft: 0 });
   assert.equal(upnext.at(upnext.hidden, d - 34000, d, false).phase, 'stillWatching');
   assert.equal(upnext.at(upnext.hidden, d - 10000, d, true).phase, 'hidden'); // a seek to the last seconds
   assert.equal(upnext.hide({ phase: 'showing', secondsLeft: 3 }).phase, 'dismissed');
