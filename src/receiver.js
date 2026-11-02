@@ -9,7 +9,8 @@ import { capabilities } from './capabilities.js';
 import { NAMESPACE, PROTOCOL } from './config.js';
 import { clock, heading, nextLine } from './format.js';
 import { identityHeaders } from './identity.js';
-import { kivoStatus, sanitizeMedia, sanitizeMediaStatus, selected, takeToken } from './status.js';
+import * as legacy from './legacy.js'; // Migration (api-naming): remove after every client has updated past this release.
+import { receiverStatus, sanitizeMedia, sanitizeMediaStatus, selected, takeToken } from './status.js';
 import * as upnext from './upnext.js';
 
 const HEARTBEAT_MS = 10000;
@@ -131,11 +132,12 @@ export class Receiver {
     return this.senderLoad(req, custom);
   }
 
-  async senderLoad(req, custom) {
-    const token = takeToken(custom);
-    this.log.info('LOAD', { contentId: req.media?.contentId, customData: custom, currentTime: req.currentTime });
-    if (custom.kivo !== PROTOCOL || !token || !Array.isArray(custom.urls) || !custom.serverId) {
-      const kind = typeof custom.kivo === 'number' && custom.kivo > PROTOCOL ? 'receiverOutdated' : 'invalidRequest';
+  async senderLoad(req, sent) {
+    const token = takeToken(sent);
+    this.log.info('LOAD', { contentId: req.media?.contentId, customData: sent, currentTime: req.currentTime });
+    const custom = legacy.load(sent); // Migration (api-naming): remove after every client has updated past this release.
+    if (custom.protocol !== PROTOCOL || !token || !Array.isArray(custom.urls) || !custom.serverId) {
+      const kind = typeof custom.protocol === 'number' && custom.protocol > PROTOCOL ? 'receiverOutdated' : 'invalidRequest';
       await this.endPlay('replaced');
       this.fail(kind);
       return this.loadError();
@@ -149,7 +151,8 @@ export class Receiver {
     this.autoplayRun = Number.isInteger(custom.autoplayCount) ? custom.autoplayCount : 0;
     this.ui.loading({ title: req.media?.metadata?.title || '', sub: '', image: undefined });
     try {
-      const { base } = await chooseServer(custom.urls, custom.serverId, PROTOCOL, this.fetch);
+      const protocols = { oldest: legacy.OLDEST_SERVER_PROTOCOL, newest: PROTOCOL }; // Migration (api-naming): remove after every client has updated past this release.
+      const { base } = await chooseServer(custom.urls, custom.serverId, protocols, this.fetch);
       this.server = new Server(base, token, this.fetch, identityHeaders(this.userAgent));
       this.contacted();
       this.choices = {
@@ -176,7 +179,7 @@ export class Receiver {
    * asked for again as one stream, with direct play off.
    */
   async startPlay(choices, oneStream = false) {
-    const body = { workId: choices.workId, capabilities: this.capabilities() };
+    const body = { workId: choices.workId, capabilities: legacy.capabilities(this.capabilities()) }; // Migration (api-naming): remove after every client has updated past this release.
     for (const k of ['versionId', 'audioTrackId', 'subtitleTrackId', 'positionMs']) {
       if (choices[k] !== undefined && choices[k] !== null && choices[k] !== '') body[k] = choices[k];
     }
@@ -184,7 +187,7 @@ export class Receiver {
     if (typeof choices.dialogueBoost === 'boolean') body.dialogueBoost = choices.dialogueBoost;
     const settings = { ...choices.settings };
     if (oneStream) settings.directPlay = false;
-    if (Object.keys(settings).length > 0) body.settings = settings;
+    if (Object.keys(settings).length > 0) body.settings = legacy.settings(settings); // Migration (api-naming): remove after every client has updated past this release.
     const workP = this.work?.id === choices.workId ? Promise.resolve(this.work) : this.server.work(choices.workId);
     const started = await this.server.start(body);
     this.contacted();
@@ -253,7 +256,7 @@ export class Receiver {
     const images = media.metadata?.images;
     media.metadata = this.metadata();
     if (images) media.metadata.images = images;
-    media.customData = { kivo: PROTOCOL };
+    media.customData = { protocol: PROTOCOL };
     this.textTracks = new Map();
     const tracks = [];
     let active;
@@ -285,7 +288,7 @@ export class Receiver {
       const md = new m.TvShowMediaMetadata();
       md.title = w.title;
       md.seriesTitle = w.episode.seriesTitle;
-      md.season = w.episode.season;
+      md.season = legacy.season(w.episode); // Migration (api-naming): remove after every client has updated past this release.
       md.episode = w.episode.number;
       return md;
     }
@@ -316,7 +319,7 @@ export class Receiver {
     req.media.contentId = started.workId;
     // A random marker, not the play's ID: the framework can show it to senders.
     const key = Math.random().toString(36).slice(2);
-    req.media.customData = { kivo: PROTOCOL, prepared: key };
+    req.media.customData = { protocol: PROTOCOL, prepared: key };
     this.prepared = { key, started };
     this.switching = true;
     try {
@@ -687,8 +690,9 @@ export class Receiver {
 
   /** A message on NAMESPACE from a sender. */
   async onMessage(data) {
-    const msg = typeof data === 'string' ? safeParse(data) : data;
-    if (!msg || typeof msg.type !== 'string') return;
+    const sent = typeof data === 'string' ? safeParse(data) : data;
+    if (!sent || typeof sent.type !== 'string') return;
+    const msg = legacy.message(sent); // Migration (api-naming): remove after every client has updated past this release.
     this.log.info('message', { type: msg.type });
     switch (msg.type) {
       case 'kivo.token':
@@ -698,18 +702,18 @@ export class Receiver {
         this.autoplayRun = 0;
         return this.setTracks(msg);
       case 'kivo.setDialogueBoost':
-        return this.switchTo({ dialogueBoost: Boolean(msg.on) });
+        return this.switchTo({ dialogueBoost: Boolean(msg.enabled) });
       case 'kivo.setQuality':
         return this.switchTo({ settings: { ...this.choices?.settings, ...settingsOf(msg) } });
       case 'kivo.setVersion':
         return this.switchTo({ versionId: msg.versionId, audioTrackId: undefined, subtitleTrackId: undefined });
-      case 'kivo.upNext':
+      case 'kivo.playNext':
         this.autoplayRun = 0;
-        if (msg.action === 'playNow') return this.playNext(false);
-        if (msg.action === 'hide') {
-          this.upNext = upnext.hide(this.upNext);
-          this.renderUpNext();
-        }
+        return this.playNext(false);
+      case 'kivo.hideUpNext':
+        this.autoplayRun = 0;
+        this.upNext = upnext.hide(this.upNext);
+        this.renderUpNext();
         return;
       case 'kivo.getStatus':
         return this.broadcast();
@@ -818,7 +822,7 @@ export class Receiver {
 
   /** The receiver's own status, for the media status and its namespace. */
   status() {
-    return kivoStatus({
+    return receiverStatus({
       workId: this.work?.id, nextWorkId: this.work?.episode?.nextId, started: this.started,
       shownSubtitle: this.shownSubtitle, upNext: this.upNext, error: this.error, errorMessage: this.errorMessage,
     });
@@ -826,7 +830,8 @@ export class Receiver {
 
   broadcast() {
     try {
-      this.context.sendCustomMessage(NAMESPACE, undefined, { type: 'kivo.status', ...this.status() });
+      const message = legacy.statusMessage({ type: 'kivo.status', ...this.status() }); // Migration (api-naming): remove after every client has updated past this release.
+      this.context.sendCustomMessage(NAMESPACE, undefined, message);
     } catch {
       // No sender connected.
     }
@@ -916,11 +921,12 @@ export function workOf(media) {
 
 /**
  * The play's settings from a LOAD's customData or a kivo.setQuality
- * message: the quality, the remote quality and any other the sender gives.
+ * message: the local quality, the remote quality and any other the sender
+ * gives.
  */
 export function settingsOf(custom) {
   const out = {};
-  for (const k of ['quality', 'remoteQuality']) {
+  for (const k of ['localQuality', 'remoteQuality']) {
     if (custom?.[k] && typeof custom[k] === 'object') out[k] = custom[k];
   }
   for (const k of ['directPlay', 'burnSubtitles']) {

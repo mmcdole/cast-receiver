@@ -173,14 +173,14 @@ export function started(over = {}) {
 
 export const episode = {
   id: WORK, kind: 'episode', title: 'Reload', durationMs: 45 * 60000,
-  episode: { season: 3, number: 4, seriesTitle: 'The Expanse', seriesId: 'series', nextId: NEXT },
+  episode: { seasonNumber: 3, number: 4, seriesTitle: 'The Expanse', seriesId: 'series', nextId: NEXT },
   images: { still: { id: 'img-still' }, backdrop: { id: 'img-back' } },
   versions: [{ id: 'v1', container: 'matroska,webm', tracks: [{ id: 's1', type: 'subtitle', language: 'en', title: 'English' }] }],
 };
 
 export const nextEpisode = {
   id: NEXT, kind: 'episode', title: 'Triple Point', durationMs: 45 * 60000,
-  episode: { season: 3, number: 5, seriesTitle: 'The Expanse', seriesId: 'series' },
+  episode: { seasonNumber: 3, number: 5, seriesTitle: 'The Expanse', seriesId: 'series' },
   images: { still: { id: 'img-next' } }, versions: [],
 };
 
@@ -190,7 +190,7 @@ export function senderLoad(custom = {}, currentTime) {
     media: {
       contentId: WORK,
       metadata: { title: 'Reload', images: [{ url: 'https://sender.example/art.jpg' }] },
-      customData: { kivo: 2, serverId: SERVER_ID, urls: ['http://192.0.2.10:8484', 'https://media.example'], token: 'SECRET-CAST-TOKEN', ...custom },
+      customData: { protocol: 3, serverId: SERVER_ID, urls: ['http://192.0.2.10:8484', 'https://media.example'], token: 'SECRET-CAST-TOKEN', ...custom },
     },
   };
   if (currentTime !== undefined) req.currentTime = currentTime;

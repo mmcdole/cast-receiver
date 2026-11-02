@@ -29,6 +29,7 @@ device's `Kivo-OS-Version` and `Kivo-Device-Model` from its user agent.
 - `src/api.js`, `src/capabilities.js`, `src/identity.js`, `src/upnext.js`,
   `src/status.js`, `src/format.js`, `src/log.js`, `src/ui.js`,
   `src/config.js`: the parts.
+- `src/legacy.js`: protocol 2, for senders and servers that still speak it.
 - `test/`: the logic, under a stand-in for the Cast framework.
 
 The page uses only relative URLs, so it works at any path on any host.

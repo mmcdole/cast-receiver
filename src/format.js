@@ -1,5 +1,7 @@
 // Words and numbers the TV shows.
 
+import * as legacy from './legacy.js'; // Migration (api-naming): remove after every client has updated past this release.
+
 const MINUS = '−';
 
 /** A position as the player shows it: 23:38, or 1:12:34 past an hour. */
@@ -28,7 +30,7 @@ export function runtime(ms) {
 /** An episode's code: S3 · E4, or S3 · E4–E5 for a file of two. */
 export function episodeCode(ep) {
   const end = ep.endNumber ? `–E${ep.endNumber}` : '';
-  return `S${ep.season} · E${ep.number}${end}`;
+  return `S${legacy.season(ep)} · E${ep.number}${end}`; // Migration (api-naming): remove after every client has updated past this release.
 }
 
 /**

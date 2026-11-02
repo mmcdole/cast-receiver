@@ -9,7 +9,8 @@ import { clock, heading, nextLine, remaining, runtime } from '../src/format.js';
 import { deviceOf, identityHeaders } from '../src/identity.js';
 import { Log, debugEnabled, redact } from '../src/log.js';
 import { failureCode, settingsOf, workOf } from '../src/receiver.js';
-import { kivoStatus, sanitizeMediaStatus, takeToken } from '../src/status.js';
+import * as legacy from '../src/legacy.js';
+import { receiverStatus, sanitizeMediaStatus, takeToken } from '../src/status.js';
 import * as upnext from '../src/upnext.js';
 import { SERVER_ID, fakeServer } from './fakes.js';
 
@@ -26,9 +27,10 @@ test('heading', () => {
   const movie = { title: 'Tremors', year: 1990, durationMs: 96 * 60000, contentRating: 'PG-13' };
   assert.deepEqual(heading(movie, { long: true }), { title: 'Tremors', sub: '1990 · 1h 36m · PG-13' });
   assert.deepEqual(heading(movie), { title: 'Tremors', sub: '1990 · PG-13' });
-  const ep = { title: 'Reload', episode: { season: 3, number: 4, seriesTitle: 'The Expanse' } };
+  const ep = { title: 'Reload', episode: { seasonNumber: 3, number: 4, seriesTitle: 'The Expanse' } };
   assert.deepEqual(heading(ep), { title: 'The Expanse', sub: 'S3 · E4 · Reload' });
-  assert.equal(nextLine({ episode: { season: 3, number: 5 } }), 'Next · S3 · E5');
+  assert.equal(nextLine({ episode: { seasonNumber: 3, number: 5 } }), 'Next · S3 · E5');
+  assert.equal(nextLine({ episode: { season: 2, number: 1 } }), 'Next · S2 · E1'); // Migration (api-naming): remove after every client has updated past this release.
 });
 
 test('capabilities from what the device says', () => {
@@ -42,9 +44,9 @@ test('capabilities from what the device says', () => {
   });
   assert.deepEqual(caps.video, [
     { codec: 'h264', delivery: ['file', 'stream'], profiles: ['Constrained Baseline', 'Baseline', 'Main', 'High'], maxLevel: 4.2, maxBitDepth: 8,
-      maxWidth: 1920, maxHeight: 1080, maxFramerate: 30 },
+      maxWidth: 1920, maxHeight: 1080, maxFrameRate: 30 },
     { codec: 'hevc', delivery: ['file', 'stream'], profiles: ['Main', 'Main 10'], maxLevel: 5.1, maxBitDepth: 10,
-      maxWidth: 3840, maxHeight: 2160, maxFramerate: 60, hdr: ['hdr10', 'hlg'], doviFallback: true, dolbyVision: [{ profile: 8 }] },
+      maxWidth: 3840, maxHeight: 2160, maxFrameRate: 60, hdr: ['hdr10', 'hlg'], doviFallback: true, dolbyVision: [{ profile: 8 }] },
   ]);
   // E-AC-3 passes through from a file; a stream has it in AAC.
   assert.deepEqual(caps.audio, [
@@ -58,7 +60,7 @@ test('capabilities from what the device says', () => {
   const uhd30 = capabilities({
     canDisplay: (m, c, w, h, f) => c === 'avc1.640028' || (c === 'avc1.640033' && (!f || f <= (w > 1920 ? 30 : 60))),
   });
-  assert.deepEqual(uhd30.video.map((v) => [v.maxLevel, v.maxWidth, v.maxHeight, v.maxFramerate]), [[5.1, 3840, 2160, 30], [5.1, 1920, 1080, 60]]);
+  assert.deepEqual(uhd30.video.map((v) => [v.maxLevel, v.maxWidth, v.maxHeight, v.maxFrameRate]), [[5.1, 3840, 2160, 30], [5.1, 1920, 1080, 60]]);
 
   // A device that answers no size and no frame rate is taken as 1080p, without a frame rate.
   const old = capabilities({ canDisplay: (m, c, w) => !w && ['avc1.640028', 'mp4a.40.2'].includes(c), hdr: false, dolbyVision: false });
@@ -74,11 +76,11 @@ test('capabilities from what the device says', () => {
 test('the identity headers', () => {
   const gtv = 'Mozilla/5.0 (Linux; Android 12.0; Build/STTL.240206.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 CrKey/1.56.500000 DeviceType/AndroidTV';
   assert.deepEqual(identityHeaders(gtv), {
-    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast',
+    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '3.0.0', 'Kivo-Platform': 'cast',
     'Kivo-OS-Version': '1.56.500000', 'Kivo-Device-Model': 'AndroidTV',
   });
   // No Cast user agent: no OS version or model.
-  assert.deepEqual(identityHeaders('Mozilla/5.0'), { 'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast' });
+  assert.deepEqual(identityHeaders('Mozilla/5.0'), { 'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '3.0.0', 'Kivo-Platform': 'cast' });
   assert.deepEqual(deviceOf('Mozilla/5.0 CrKey/1.36.159268'), { osVersion: '1.36.159268', model: 'Chromecast' });
 });
 
@@ -88,9 +90,9 @@ test('the version is the package\'s', () => {
 });
 
 test('settings from a LOAD or a quality message', () => {
-  assert.deepEqual(settingsOf({ quality: { mode: 'auto' }, remoteQuality: { mode: 'limit', maxBitrateBps: 2000000 }, directPlay: false, kivo: 2, token: 'x' }),
-    { quality: { mode: 'auto' }, remoteQuality: { mode: 'limit', maxBitrateBps: 2000000 }, directPlay: false });
-  assert.deepEqual(settingsOf({ quality: 'auto', burnSubtitles: 'yes' }), {});
+  assert.deepEqual(settingsOf({ localQuality: { mode: 'auto' }, remoteQuality: { mode: 'limit', maxBitrateBps: 2000000 }, directPlay: false, protocol: 3, token: 'x' }),
+    { localQuality: { mode: 'auto' }, remoteQuality: { mode: 'limit', maxBitrateBps: 2000000 }, directPlay: false });
+  assert.deepEqual(settingsOf({ localQuality: 'auto', burnSubtitles: 'yes' }), {});
   assert.deepEqual(settingsOf(undefined), {});
 });
 
@@ -103,15 +105,15 @@ test('up next rules', () => {
   let s = upnext.at(upnext.hidden, d - 60000, d, true);
   assert.equal(s, upnext.hidden);
   s = upnext.at(s, d - 34000, d, true);
-  assert.deepEqual(s, { phase: 'showing', secondsLeft: 34 });
+  assert.deepEqual(s, { phase: 'countingDown', secondsLeft: 34 });
   assert.equal(upnext.at(s, d - 33500, d, true), s);
   s = upnext.at(s, d - 33000, d, true);
-  assert.deepEqual(s, { phase: 'showing', secondsLeft: 33 });
-  assert.deepEqual(upnext.at(s, d - 400, d, true), { phase: 'showing', secondsLeft: 1 });
-  assert.deepEqual(upnext.at(s, d, d, true), { phase: 'showing', secondsLeft: 0 });
+  assert.deepEqual(s, { phase: 'countingDown', secondsLeft: 33 });
+  assert.deepEqual(upnext.at(s, d - 400, d, true), { phase: 'countingDown', secondsLeft: 1 });
+  assert.deepEqual(upnext.at(s, d, d, true), { phase: 'countingDown', secondsLeft: 0 });
   assert.equal(upnext.at(upnext.hidden, d - 34000, d, false).phase, 'stillWatching');
   assert.equal(upnext.at(upnext.hidden, d - 10000, d, true).phase, 'hidden'); // a seek to the last seconds
-  assert.equal(upnext.hide({ phase: 'showing', secondsLeft: 3 }).phase, 'dismissed');
+  assert.equal(upnext.hide({ phase: 'countingDown', secondsLeft: 3 }).phase, 'dismissed');
   assert.equal(upnext.at({ phase: 'dismissed', secondsLeft: 3 }, 1000, d, true), upnext.hidden);
   assert.equal(upnext.atEnd({ episode: true, hasNext: true, autoplayAllowed: true }), 'playNext');
   assert.equal(upnext.atEnd({ episode: true, hasNext: true, autoplayAllowed: false }), 'stillWatching');
@@ -119,7 +121,7 @@ test('up next rules', () => {
 });
 
 test('status never carries the token or media URLs', () => {
-  const custom = { kivo: 2, token: 'SECRET', urls: [] };
+  const custom = { protocol: 3, token: 'SECRET', urls: [] };
   assert.equal(takeToken(custom), 'SECRET');
   assert.equal(custom.token, undefined);
   const status = {
@@ -129,16 +131,19 @@ test('status never carries the token or media URLs', () => {
   // The framework's queue items hold the sender's LOAD as it came.
   status.items = [{ itemId: 1, customData: { token: 'SECRET' },
     media: { contentId: 'w', contentUrl: 'http://x/plays/p/files/0', customData: { kivo: 1, token: 'SECRET', urls: [] } } }];
-  const out = sanitizeMediaStatus(status, kivoStatus({ workId: 'w' }));
+  const out = sanitizeMediaStatus(status, receiverStatus({ workId: 'w' }));
   const text = JSON.stringify(out);
   assert.ok(!text.includes('SECRET') && !text.includes('plays/p'), text);
-  assert.deepEqual(out.media.customData, { kivo: { error: null, workId: 'w' } });
-  assert.deepEqual(out.items[0].media.customData, { kivo: { error: null, workId: 'w' } });
-  const own = sanitizeMediaStatus({ media: { contentId: 'w', customData: { kivo: 1, prepared: 'k1' } } }, {});
-  assert.deepEqual(own.media.customData, { kivo: {}, prepared: 'k1' });
+  // Migration (api-naming): remove after every client has updated past this release.
+  const both = { status: { error: null, workId: 'w' }, kivo: { error: null, workId: 'w' } };
+  assert.deepEqual(out.customData, both);
+  assert.deepEqual(out.media.customData, both);
+  assert.deepEqual(out.items[0].media.customData, both);
+  const own = sanitizeMediaStatus({ media: { contentId: 'w', customData: { protocol: 3, prepared: 'k1' } } }, {});
+  assert.deepEqual(own.media.customData, { status: {}, prepared: 'k1', kivo: {} }); // Migration (api-naming): remove after every client has updated past this release.
 });
 
-test('kivo status', () => {
+test('receiver status', () => {
   const started = {
     id: 'PLAY-ID', versionId: 'v', local: true, delivery: 'file', url: 'plays/PLAY-ID/files/0',
     tracks: [
@@ -148,15 +153,15 @@ test('kivo status', () => {
       { trackId: 'off', type: 'subtitle', delivery: 'none' },
     ],
   };
-  const s = kivoStatus({ workId: 'w', nextWorkId: 'n', shownSubtitle: 'off', upNext: { phase: 'showing', secondsLeft: 7 }, started });
+  const s = receiverStatus({ workId: 'w', nextWorkId: 'n', shownSubtitle: 'off', upNext: { phase: 'countingDown', secondsLeft: 7 }, started });
   assert.ok(!JSON.stringify(s).includes('PLAY-ID'));
   assert.equal(s.subtitleTrackId, undefined); // switched off
   assert.equal(s.audioTrackId, 'a');
   assert.deepEqual(s.tracks.filter((t) => t.selected).map((t) => t.trackId), ['v0', 'a', 'off']);
   assert.deepEqual(s.tracks[2], { trackId: 's', type: 'subtitle', delivery: 'external', codec: 'webvtt' });
-  assert.deepEqual(s.upNext, { phase: 'showing', secondsLeft: 7 });
+  assert.deepEqual(s.upNext, { phase: 'countingDown', secondsLeft: 7 });
   assert.equal(s.error, null);
-  assert.equal(kivoStatus({ started }).subtitleTrackId, 's');
+  assert.equal(receiverStatus({ started }).subtitleTrackId, 's');
   assert.equal(started.tracks[2].url, 'plays/PLAY-ID/subtitles/s.vtt', 'the play keeps its own');
 });
 
@@ -178,25 +183,60 @@ test('the debug log is off by default and redacts secrets', () => {
 });
 
 test('choosing the server by its ID and protocol', async () => {
+  const protocols = { oldest: 2, newest: 3 };
   const info = (id, castProtocol) => () => [200, { id, name: 'Den', version: '1', castProtocol }];
-  let srv = fakeServer({ 'GET server': info(SERVER_ID, 1) });
-  const got = await chooseServer(['http://192.0.2.10:8484/', 'https://media.example'], SERVER_ID, 1, srv.fetch);
+  let srv = fakeServer({ 'GET server': info(SERVER_ID, 3) });
+  const got = await chooseServer(['http://192.0.2.10:8484/', 'https://media.example'], SERVER_ID, protocols, srv.fetch);
   assert.equal(got.base, 'http://192.0.2.10:8484/');
   assert.equal(srv.requests[0].auth, undefined, 'server info is asked for without the token');
+  srv = fakeServer({ 'GET server': info(SERVER_ID, 2) });
+  assert.equal((await chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch)).info.castProtocol, 2);
 
   // The first address is another server; the second is the right one.
-  srv = fakeServer({ 'GET server': ({ url }) => [200, { id: url.host === '192.0.2.10:8484' ? 'other' : SERVER_ID, castProtocol: 1 }] });
-  assert.equal((await chooseServer(['http://192.0.2.10:8484', 'https://media.example'], SERVER_ID, 1, srv.fetch)).base, 'https://media.example');
+  srv = fakeServer({ 'GET server': ({ url }) => [200, { id: url.host === '192.0.2.10:8484' ? 'other' : SERVER_ID, castProtocol: 3 }] });
+  assert.equal((await chooseServer(['http://192.0.2.10:8484', 'https://media.example'], SERVER_ID, protocols, srv.fetch)).base, 'https://media.example');
 
   srv = fakeServer({});
-  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, 1, srv.fetch), NetworkError);
-  srv = fakeServer({ 'GET server': info('other', 1) });
-  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, 1, srv.fetch), (e) => e instanceof ServerMismatch && e.kind === 'otherServer');
+  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch), NetworkError);
+  srv = fakeServer({ 'GET server': info('other', 3) });
+  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch), (e) => e instanceof ServerMismatch && e.kind === 'otherServer');
   srv = fakeServer({ 'GET server': info(SERVER_ID, undefined) });
-  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, 1, srv.fetch), (e) => e.kind === 'serverOutdated');
-  srv = fakeServer({ 'GET server': info(SERVER_ID, 2) });
-  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, 1, srv.fetch), (e) => e.kind === 'receiverOutdated');
+  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch), (e) => e.kind === 'serverOutdated');
+  srv = fakeServer({ 'GET server': info(SERVER_ID, 1) });
+  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch), (e) => e.kind === 'serverOutdated');
+  srv = fakeServer({ 'GET server': info(SERVER_ID, 4) });
+  await assert.rejects(chooseServer(['http://192.0.2.10:8484'], SERVER_ID, protocols, srv.fetch), (e) => e.kind === 'receiverOutdated');
   assert.ok(new ApiError(410, { code: 'playEnded', message: 'Bedtime' }).problemMessage === 'Bedtime');
+});
+
+// Migration (api-naming): remove after every client has updated past this release.
+test('protocol 2 LOADs, messages, status and server names', () => {
+  // A protocol 2 LOAD reads quality as the local quality.
+  assert.deepEqual(legacy.load({ kivo: 2, serverId: 's', quality: { mode: 'auto' }, remoteQuality: { mode: 'original' } }),
+    { protocol: 3, serverId: 's', localQuality: { mode: 'auto' }, remoteQuality: { mode: 'original' } });
+  const current = { protocol: 3, localQuality: { mode: 'auto' } };
+  assert.equal(legacy.load(current), current);
+  assert.deepEqual(legacy.load({ kivo: 1 }), { kivo: 1 });
+
+  assert.deepEqual(legacy.message({ type: 'kivo.upNext', action: 'playNow' }), { type: 'kivo.playNext' });
+  assert.deepEqual(legacy.message({ type: 'kivo.upNext', action: 'hide' }), { type: 'kivo.hideUpNext' });
+  assert.deepEqual(legacy.message({ type: 'kivo.setDialogueBoost', on: true }), { type: 'kivo.setDialogueBoost', on: true, enabled: true });
+  assert.deepEqual(legacy.message({ type: 'kivo.setQuality', quality: { mode: 'auto' } }), { type: 'kivo.setQuality', quality: { mode: 'auto' }, localQuality: { mode: 'auto' } });
+  const boost = { type: 'kivo.setDialogueBoost', enabled: false };
+  assert.equal(legacy.message(boost), boost);
+
+  assert.deepEqual(legacy.status({ workId: 'w', upNext: { phase: 'countingDown', secondsLeft: 7 } }), { workId: 'w', upNext: { phase: 'showing', secondsLeft: 7 } });
+  assert.deepEqual(legacy.withStatus({ status: { upNext: { phase: 'stillWatching', secondsLeft: 0 } } }),
+    { status: { upNext: { phase: 'stillWatching', secondsLeft: 0 } }, kivo: { upNext: { phase: 'stillWatching', secondsLeft: 0 } } });
+  assert.deepEqual(legacy.statusMessage({ type: 'kivo.status', error: null, upNext: { phase: 'countingDown', secondsLeft: 3 } }),
+    { type: 'kivo.status', error: null, upNext: { phase: 'countingDown', secondsLeft: 3 }, kivo: { error: null, upNext: { phase: 'showing', secondsLeft: 3 } } });
+
+  assert.deepEqual(legacy.settings({ localQuality: { mode: 'auto' }, remoteQuality: { mode: 'auto' } }),
+    { localQuality: { mode: 'auto' }, remoteQuality: { mode: 'auto' }, quality: { mode: 'auto' } });
+  assert.deepEqual(legacy.capabilities({ video: [{ codec: 'h264', maxFrameRate: 30 }, { codec: 'vp9' }], audio: [] }),
+    { video: [{ codec: 'h264', maxFrameRate: 30, maxFramerate: 30 }, { codec: 'vp9' }], audio: [] });
+  assert.equal(legacy.season({ seasonNumber: 3, season: 9 }), 3);
+  assert.equal(legacy.season({ season: 2 }), 2);
 });
 
 test('helpers', () => {

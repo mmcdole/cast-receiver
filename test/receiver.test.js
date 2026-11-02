@@ -8,11 +8,11 @@ import { FakeUI, NEXT, SERVER_ID, WORK, episode, fakeFramework, fakeServer, next
 const ok = (body) => () => [200, body];
 
 /** A receiver over fakes, with the server's routes; its timers are cleared when the test ends. */
-function setup(t, routes = {}, { logLines, answer = () => ({}) } = {}) {
+function setup(t, routes = {}, { logLines, answer = () => ({}), castProtocol = 3 } = {}) {
   const fw = fakeFramework();
   const plays = [];
   const srv = fakeServer({
-    'GET server': ok({ id: SERVER_ID, name: 'Den', version: '1', castProtocol: 2 }),
+    'GET server': ok({ id: SERVER_ID, name: 'Den', version: '1', castProtocol }),
     'POST plays': ({ body }) => {
       const p = started({ id: `play-${plays.length + 1}`, workId: body.workId, startMs: body.positionMs ?? 60000, ...answer(body, plays.length) });
       plays.push({ body, p });
@@ -48,7 +48,7 @@ test('a LOAD starts the play as the token, with the device capabilities, and pla
   const lines = [];
   const { player, srv, plays, ui } = setup(t, {}, { logLines: lines });
   const req = await player.senderLoad(senderLoad({
-    audioTrackId: 'a2', subtitleTrackId: 'off', quality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' },
+    audioTrackId: 'a2', subtitleTrackId: 'off', localQuality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' },
   }, 120));
   assert.equal(plays.length, 1);
   const body = plays[0].body;
@@ -56,8 +56,13 @@ test('a LOAD starts the play as the token, with the device capabilities, and pla
   assert.equal(body.positionMs, 120000);
   assert.equal(body.audioTrackId, 'a2');
   assert.equal(body.subtitleTrackId, 'off');
-  assert.deepEqual(body.settings, { quality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' } });
+  // The local quality goes under both its names, for a server on protocol 2 or 3.
+  // Migration (api-naming): remove after every client has updated past this release.
+  assert.deepEqual(body.settings, {
+    localQuality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' }, quality: { mode: 'limit', maxBitrateBps: 4000000 },
+  });
   assert.equal(body.quality, undefined);
+  for (const v of body.capabilities.video) assert.equal(v.maxFramerate, v.maxFrameRate); // Migration (api-naming): remove after every client has updated past this release.
   assert.deepEqual(body.capabilities.video.map((v) => [v.codec, v.delivery]), [['h264', ['file', 'stream']]]);
   assert.deepEqual(body.capabilities.audio.map((a) => [a.codec, a.delivery]), [['aac', ['file', 'stream']], ['ac3', ['file']]]);
   assert.deepEqual(body.capabilities.subtitles, [{ codec: 'webvtt', delivery: ['stream', 'external'] }]);
@@ -80,7 +85,7 @@ test('a LOAD starts the play as the token, with the device capabilities, and pla
   assert.equal(req.media.tracks[0].language, 'en');
   assert.equal(req.media.metadata.seriesTitle, 'The Expanse');
   assert.deepEqual(req.media.metadata.images, [{ url: 'https://sender.example/art.jpg' }]);
-  assert.deepEqual(req.media.customData, { kivo: 2 }); // the token is gone, so status can't echo it
+  assert.deepEqual(req.media.customData, { protocol: 3 }); // the token is gone, so status can't echo it
   assert.deepEqual(req.activeTrackIds, []); // subtitles off
   assert.equal(ui.screen, 'loading');
   assert.ok(!lines.join('\n').includes('SECRET'), 'the debug log holds the token');
@@ -93,22 +98,25 @@ test('the media status hides media URLs and adds the receiver status', async (t)
   const status = player.interceptors.MEDIA_STATUS({ media: JSON.parse(JSON.stringify(req.media)) });
   const text = JSON.stringify(status);
   assert.ok(!text.includes('play-1') && !text.includes('SECRET'), text);
-  assert.equal(status.customData.kivo.workId, WORK);
-  assert.equal(status.customData.kivo.nextWorkId, NEXT);
-  assert.equal(status.customData.kivo.audioTrackId, 'a1');
-  assert.equal(status.customData.kivo.subtitleTrackId, undefined);
-  assert.deepEqual(status.customData.kivo.tracks.map((t) => [t.trackId, t.delivery, t.selected]), [
+  assert.equal(status.customData.status.workId, WORK);
+  assert.equal(status.customData.status.nextWorkId, NEXT);
+  assert.equal(status.customData.status.audioTrackId, 'a1');
+  assert.equal(status.customData.status.subtitleTrackId, undefined);
+  assert.deepEqual(status.customData.status.tracks.map((t) => [t.trackId, t.delivery, t.selected]), [
     ['v0', 'stream', true], ['a1', 'stream', true], ['a9', undefined, undefined], ['s1', 'external', undefined],
     ['s2', undefined, undefined], ['off', 'none', true],
   ]);
-  assert.equal(status.customData.kivo.decision, undefined);
+  assert.equal(status.customData.status.decision, undefined);
+  // Protocol 2 senders read the same status under kivo.
+  // Migration (api-naming): remove after every client has updated past this release.
+  assert.deepEqual(status.customData.kivo, status.customData.status);
 });
 
 test('every API request but server info names the receiver in its identity headers', async (t) => {
   const { player, srv } = setup(t);
   await player.senderLoad(senderLoad());
   const identity = {
-    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '2.0.0', 'Kivo-Platform': 'cast',
+    'Kivo-App': 'kivo-cast', 'Kivo-App-Version': '3.0.0', 'Kivo-Platform': 'cast',
     'Kivo-OS-Version': '1.56.500000', 'Kivo-Device-Model': 'Chromecast',
   };
   for (const q of srv.requests) assert.deepEqual(q.identity, q.path === 'server' ? {} : identity, q.path);
@@ -116,11 +124,13 @@ test('every API request but server info names the receiver in its identity heade
 
 test('a LOAD without the protocol or token is refused', async (t) => {
   const { player, ui } = setup(t);
-  const out = await player.senderLoad(senderLoad({ kivo: undefined }));
+  const out = await player.senderLoad(senderLoad({ protocol: undefined }));
   assert.equal(out.type, 'LOAD_FAILED');
-  const older = await player.senderLoad(senderLoad({ kivo: 1 }));
+  const older = await player.senderLoad(senderLoad({ protocol: undefined, kivo: 1 }));
   assert.equal(older.type, 'LOAD_FAILED');
-  const newer = await player.senderLoad(senderLoad({ kivo: 3 }));
+  const noToken = await player.senderLoad(senderLoad({ token: undefined }));
+  assert.equal(noToken.type, 'LOAD_FAILED');
+  const newer = await player.senderLoad(senderLoad({ protocol: 4 }));
   assert.equal(newer.type, 'LOAD_FAILED');
   assert.equal(ui.screen, 'error');
   assert.match(ui.last.line, /older than the server/);
@@ -227,10 +237,10 @@ test('a subtitle with a delivery shows at once, one without and audio start a ne
   await r.onMessage({ type: 'kivo.setTracks', audioTrackId: 'a9' });
   assert.equal(plays.length, 3);
   assert.equal(plays[2].body.audioTrackId, 'a9');
-  await r.onMessage({ type: 'kivo.setDialogueBoost', on: true });
+  await r.onMessage({ type: 'kivo.setDialogueBoost', enabled: true });
   assert.equal(plays[3].body.dialogueBoost, true);
-  await r.onMessage({ type: 'kivo.setQuality', quality: { mode: 'original' }, remoteQuality: { mode: 'original' } });
-  assert.deepEqual(plays[4].body.settings, { quality: { mode: 'original' }, remoteQuality: { mode: 'original' } });
+  await r.onMessage({ type: 'kivo.setQuality', localQuality: { mode: 'original' }, remoteQuality: { mode: 'original' } });
+  assert.deepEqual(plays[4].body.settings, { localQuality: { mode: 'original' }, remoteQuality: { mode: 'original' }, quality: { mode: 'original' } }); // Migration (api-naming): remove after every client has updated past this release.
 });
 
 test('a subtitle a play carries in its stream is matched to its rendition and shows at once', async (t) => {
@@ -300,20 +310,27 @@ test('a file plays directly, with its subtitle file showing; one in parts is ask
   assert.equal(req.media.tracks[0].trackContentId, 'http://192.0.2.10:8484/api/v1/plays/play-1/subtitles/s1.vtt');
 
   parts = 2;
-  const again = await player.senderLoad(senderLoad({ quality: { mode: 'auto' } }));
-  assert.deepEqual(plays.at(-1).body.settings, { quality: { mode: 'auto' }, directPlay: false });
+  const again = await player.senderLoad(senderLoad({ localQuality: { mode: 'auto' } }));
+  assert.deepEqual(plays.at(-1).body.settings, { localQuality: { mode: 'auto' }, directPlay: false, quality: { mode: 'auto' } }); // Migration (api-naming): remove after every client has updated past this release.
   assert.ok(srv.requests.some((q) => q.path === `plays/play-${plays.length - 1}/stop`));
   assert.equal(again.media.contentType, 'application/x-mpegurl');
 });
 
 test('up next counts the time left near the end and plays the next episode when it ends', async (t) => {
-  const { r, player, plays } = setup(t);
+  const { r, player, plays, context } = setup(t);
   await player.senderLoad(senderLoad());
   await settle(); // the next episode's detail
   player.state = 'PLAYING';
   const d = 45 * 60000;
   player.emit('TIME_UPDATE', { currentMediaTime: (d - 34000) / 1000 });
-  assert.equal(r.status().upNext.phase, 'showing');
+  assert.equal(r.status().upNext.phase, 'countingDown');
+  const status = player.interceptors.MEDIA_STATUS({});
+  assert.deepEqual(status.customData.status.upNext, { phase: 'countingDown', secondsLeft: 34 });
+  assert.deepEqual(status.customData.kivo.upNext, { phase: 'showing', secondsLeft: 34 }); // Migration (api-naming): remove after every client has updated past this release.
+  const message = context.messages.at(-1).data;
+  assert.equal(message.type, 'kivo.status');
+  assert.equal(message.upNext.phase, 'countingDown');
+  assert.equal(message.kivo.upNext.phase, 'showing'); // Migration (api-naming): remove after every client has updated past this release.
   assert.equal(r.ui.card.title, 'Triple Point');
   assert.equal(r.ui.card.line, 'Next · S3 · E5');
   assert.equal(r.ui.card.secondsLeft, 34);
@@ -338,9 +355,64 @@ test('after three on their own, the end asks "Still watching?"', async (t) => {
   assert.equal(plays.length, 1);
   assert.equal(r.status().upNext.phase, 'stillWatching');
   assert.equal(r.ui.card.stillWatching, true);
-  await r.onMessage({ type: 'kivo.upNext', action: 'playNow' });
+  await r.onMessage({ type: 'kivo.playNext' });
   assert.equal(plays.length, 2);
   assert.equal(r.autoplayRun, 0);
+});
+
+test('Hide puts the card away for the rest of the episode', async (t) => {
+  for (const hide of [{ type: 'kivo.hideUpNext' }, { type: 'kivo.upNext', action: 'hide' }]) { // Migration (api-naming): remove after every client has updated past this release.
+    const { r, player } = setup(t);
+    await player.senderLoad(senderLoad());
+    await settle();
+    player.state = 'PLAYING';
+    player.emit('TIME_UPDATE', { currentMediaTime: (45 * 60000 - 34000) / 1000 });
+    assert.equal(r.status().upNext.phase, 'countingDown');
+    await r.onMessage(hide);
+    assert.equal(r.status().upNext.phase, 'dismissed', hide.type);
+    assert.equal(r.ui.card, undefined);
+  }
+});
+
+// Migration (api-naming): remove after every client has updated past this release.
+test('a protocol 2 sender casts through a protocol 2 server', async (t) => {
+  const { r, player, plays, srv } = setup(t, {
+    [`GET works/${WORK}`]: ok({ ...episode, episode: { season: 3, number: 4, seriesTitle: 'The Expanse', nextId: NEXT } }),
+  }, { castProtocol: 2 });
+  const req = await player.senderLoad(senderLoad({
+    protocol: undefined, kivo: 2, quality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' },
+  }));
+  assert.equal(req.type, undefined, 'the load goes ahead');
+  assert.equal(plays.length, 1);
+  assert.deepEqual(plays[0].body.settings, {
+    localQuality: { mode: 'limit', maxBitrateBps: 4000000 }, remoteQuality: { mode: 'auto' }, quality: { mode: 'limit', maxBitrateBps: 4000000 },
+  });
+  assert.equal(req.media.metadata.season, 3);
+  assert.ok(!JSON.stringify(req.media).includes('SECRET'));
+  assert.ok(srv.requests.every((q) => !q.url.includes('SECRET')));
+
+  player.state = 'PLAYING';
+  await r.onMessage({ type: 'kivo.setDialogueBoost', on: true });
+  assert.equal(plays[1].body.dialogueBoost, true);
+  await r.onMessage(JSON.stringify({ type: 'kivo.setQuality', quality: { mode: 'original' }, remoteQuality: { mode: 'original' } }));
+  assert.deepEqual(plays[2].body.settings, { localQuality: { mode: 'original' }, remoteQuality: { mode: 'original' }, quality: { mode: 'original' } });
+  await r.onMessage({ type: 'kivo.upNext', action: 'playNow' });
+  assert.equal(plays.length, 4);
+  assert.equal(plays[3].body.workId, NEXT);
+});
+
+// Migration (api-naming): remove after every client has updated past this release.
+test('a protocol 3 sender casts through a protocol 2 server, and a server outside 2 and 3 is refused', async (t) => {
+  const { player, plays } = setup(t, {}, { castProtocol: 2 });
+  await player.senderLoad(senderLoad());
+  assert.equal(plays.length, 1);
+  for (const [castProtocol, line] of [[1, /Update the server/], [4, /older than the server/]]) {
+    const { player: p, plays: none, ui } = setup(t, {}, { castProtocol });
+    const out = await p.senderLoad(senderLoad());
+    assert.equal(out.type, 'LOAD_FAILED');
+    assert.equal(none.length, 0);
+    assert.match(ui.last.line, line);
+  }
 });
 
 test('a sender\'s Stop saves the position and goes idle with the user\'s backdrops', async (t) => {
