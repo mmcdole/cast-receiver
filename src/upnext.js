@@ -19,12 +19,12 @@ export function showAtMs(durationMs) {
   return durationMs - lead;
 }
 
-/** The card's state: hidden, showing (counting the seconds left), dismissed, or stillWatching. */
+/** The card's state: hidden, countingDown (counting the seconds left), dismissed, or stillWatching. */
 export const hidden = Object.freeze({ phase: 'hidden', secondsLeft: 0 });
 
 /** Whether the card shows. */
 export function shows(s) {
-  return s.phase === 'showing' || s.phase === 'stillWatching';
+  return s.phase === 'countingDown' || s.phase === 'stillWatching';
 }
 
 /** The whole seconds left in an episode of durationMs at positionMs. */
@@ -35,17 +35,17 @@ function secondsToEnd(positionMs, durationMs) {
 /**
  * The card at positionMs: it appears at its time with 20 seconds or more
  * left, asking "Still watching?" unless autoplay is allowed, and a position
- * before its time hides it again. Showing, it counts the seconds left in the
+ * before its time hides it again. Counting down, it counts the seconds left in the
  * episode. The same object when nothing changes.
  */
 export function at(s, positionMs, durationMs, autoplayAllowed) {
   const when = showAtMs(durationMs);
   if (positionMs < (when ?? durationMs - MIN_LEFT_MS)) return s.phase === 'hidden' ? s : hidden;
   const secondsLeft = secondsToEnd(positionMs, durationMs);
-  if (s.phase === 'showing') return secondsLeft === s.secondsLeft ? s : { ...s, secondsLeft };
+  if (s.phase === 'countingDown') return secondsLeft === s.secondsLeft ? s : { ...s, secondsLeft };
   const appears = s.phase === 'hidden' && when !== undefined && durationMs - positionMs >= MIN_LEFT_MS;
   if (!appears) return s;
-  return autoplayAllowed ? { phase: 'showing', secondsLeft } : { phase: 'stillWatching', secondsLeft: 0 };
+  return autoplayAllowed ? { phase: 'countingDown', secondsLeft } : { phase: 'stillWatching', secondsLeft: 0 };
 }
 
 /** Hide: the card stays away for the rest of the episode, which still plays on at its end. */

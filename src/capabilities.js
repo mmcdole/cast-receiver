@@ -101,7 +101,7 @@ function videoEntries(codec, of, probe, can) {
   entry.maxWidth = width;
   entry.maxHeight = height;
   const framerate = framerates.find((f) => can(mime, codecs, width, height, f));
-  if (framerate) entry.maxFramerate = framerate;
+  if (framerate) entry.maxFrameRate = framerate;
   if (entry.maxBitDepth >= 10 && probe.hdr) {
     entry.hdr = ['hdr10', 'hlg'];
     // A Dolby Vision video (HEVC, or AV1 for profile 10) whose profile
@@ -115,7 +115,7 @@ function videoEntries(codec, of, probe, can) {
   const entries = [entry];
   if (framerate && width * height > FULL_HD[0] * FULL_HD[1]) {
     const fullHd = framerates.find((f) => can(mime, codecs, ...FULL_HD, f));
-    if (fullHd > framerate) entries.push({ ...entry, maxWidth: FULL_HD[0], maxHeight: FULL_HD[1], maxFramerate: fullHd });
+    if (fullHd > framerate) entries.push({ ...entry, maxWidth: FULL_HD[0], maxHeight: FULL_HD[1], maxFrameRate: fullHd });
   }
   return entries;
 }

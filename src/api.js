@@ -102,10 +102,10 @@ const PROBE_TIMEOUT_MS = 4000;
 
 /**
  * The first of urls that answers server info as the server serverId, with
- * its info. A server speaking another protocol is a ServerMismatch; none
- * answering is a NetworkError.
+ * its info. A server speaking a protocol outside protocols (oldest to
+ * newest) is a ServerMismatch; none answering is a NetworkError.
  */
-export async function chooseServer(urls, serverId, protocol, fetchImpl = globalThis.fetch.bind(globalThis)) {
+export async function chooseServer(urls, serverId, { oldest, newest }, fetchImpl = globalThis.fetch.bind(globalThis)) {
   let other = false;
   for (const base of urls) {
     let info;
@@ -120,8 +120,8 @@ export async function chooseServer(urls, serverId, protocol, fetchImpl = globalT
       other = true;
       continue;
     }
-    if (info.castProtocol === undefined || info.castProtocol < protocol) throw new ServerMismatch('serverOutdated');
-    if (info.castProtocol > protocol) throw new ServerMismatch('receiverOutdated');
+    if (info.castProtocol === undefined || info.castProtocol < oldest) throw new ServerMismatch('serverOutdated');
+    if (info.castProtocol > newest) throw new ServerMismatch('receiverOutdated');
     return { base, info };
   }
   if (other) throw new ServerMismatch('otherServer');
