@@ -83,7 +83,6 @@ export class Receiver {
     this.failing = undefined; // the play whose media error is being handled
     this.switching = false; // a new play replacing the current one is loading
     this.heartbeat = undefined;
-    this.countdown = undefined;
     this.idleTimer = undefined;
     this.pausedTimer = undefined;
     this.objectUrls = [];
@@ -348,7 +347,7 @@ export class Receiver {
     }
   }
 
-  /** The next episode, on its own when the countdown ran out or by a sender's Play now. */
+  /** The next episode, on its own when this one ended or by a sender's Play now. */
   async playNext(automatic) {
     const nextId = this.work?.episode?.nextId;
     if (!nextId || !this.server) return;
@@ -440,7 +439,7 @@ export class Receiver {
     });
     if (next === 'playNext') return this.playNext(true);
     if (next === 'stillWatching') {
-      this.upNext = { phase: 'stillWatching', secondsLeft: upnext.COUNTDOWN_SECONDS };
+      this.upNext = { phase: 'stillWatching', secondsLeft: 0 };
       this.renderUpNext();
       await this.endPlay('ended', this.durationMs);
       this.idleSoon();
@@ -844,7 +843,6 @@ export class Receiver {
     const s = this.upNext;
     if (!upnext.shows(s) || !this.work?.episode?.nextId) {
       this.ui.hideUpNext();
-      this.clearInterval('countdown');
       return;
     }
     const next = this.next;
@@ -852,22 +850,7 @@ export class Receiver {
       image: next?.stillUrl, line: nextLine(next), title: next?.title || '', secondsLeft: s.secondsLeft,
       stillWatching: s.phase === 'stillWatching',
     });
-    if (s.phase === 'showing' && !this.countdown) {
-      this.countdown = setInterval(() => this.countDown(), 1000);
-    }
     this.broadcast();
-  }
-
-  countDown() {
-    this.upNext = upnext.tick(this.upNext, this.playingNow());
-    if (upnext.playsNext(this.upNext)) {
-      this.clearInterval('countdown');
-      this.upNext = upnext.hidden;
-      this.ui.hideUpNext();
-      this.playNext(true);
-      return;
-    }
-    this.renderUpNext();
   }
 
   async backdropFor(work) {
